@@ -591,7 +591,7 @@ export default function Yearning() {
               onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(253,230,138,0.18)"; e.currentTarget.style.color = "#fde68a"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(253,230,138,0.1)"; e.currentTarget.style.color = "rgba(253,230,138,0.8)"; }}
             >
-              support on yearning ko-fi →
+              support yearning on ko-fi →
             </a>
 
             <div style={{
