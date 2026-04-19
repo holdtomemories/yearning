@@ -5,14 +5,14 @@ const Tag = ({ c, children }) => (
     background: c === "cyan" ? "rgba(103,232,249,0.1)" : "rgba(134,239,172,0.1)",
     color: c === "cyan" ? "rgba(103,232,249,0.75)" : "rgba(134,239,172,0.75)",
     padding: "1px 6px", borderRadius: 1, fontSize: 12,
-    fontStyle: "normal", fontFamily: "'EB Garamond', serif", letterSpacing: "0.04em",
+    fontStyle: "normal", fontFamily: "'Lora', serif", letterSpacing: "0.04em",
   }}>{children}</span>
 );
 
 const Step = ({ n, c, children }) => (
   <div style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 7 }}>
-    <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 11, color: c, minWidth: 14, marginTop: 2 }}>{n}</div>
-    <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 13.5, color: "rgba(232,228,217,0.58)", lineHeight: 1.55, fontStyle: "italic" }}>{children}</div>
+    <div style={{ fontFamily: "'Lora', serif", fontSize: 11, color: c, minWidth: 14, marginTop: 2 }}>{n}</div>
+    <div style={{ fontFamily: "'Lora', serif", fontSize: 13.5, color: "rgba(232,228,217,0.58)", lineHeight: 1.55, fontStyle: "italic" }}>{children}</div>
   </div>
 );
 
@@ -33,7 +33,7 @@ const getMood = (key) => MOODS.find((m) => m.key === key) ?? MOODS[0];
 const TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
 const TILE_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>';
 
-const KOFI_URL = "https://ko-fi.com/supportyearning";
+const KOFI_URL = "https://ko-fi.com/donatetoyearning";
 
 export default function Yearning() {
   const mapContainerRef = useRef(null);
@@ -54,7 +54,7 @@ export default function Yearning() {
   const [mapReady, setMapReady] = useState(false);
   const [toast, setToast] = useState(null);
   const [showTipJar, setShowTipJar] = useState(false);
-  const [showInstallHelp, setShowInstallHelp] = useState(false);
+  const [showHelpCenter, setShowHelpCenter] = useState(false);
 
   // Onboarding: null = dismissed, "welcome" = screen 1, "guide" = screen 2
   const [onboardingStep, setOnboardingStep] = useState(() => {
@@ -223,15 +223,15 @@ export default function Yearning() {
   const ICON_GUIDE = [
     { icon: "◎", color: "#67e8f9", border: "rgba(103,232,249,0.3)", label: "Locate me", desc: "Finds your current position on the map and flies you there." },
     { icon: "✦", color: "#c084fc", border: "rgba(192,132,252,0.3)", label: "Plant here", desc: "Drops a memory right at your current location. Appears once you're located." },
-    { icon: "+", color: "rgba(232,228,217,0.55)", border: "rgba(255,255,255,0.1)", label: "Tap anywhere", desc: "Enter placing mode, tap any spot on the map to leave a thought there.", fontSize: 22 },
+    { icon: "+", color: "rgba(232,228,217,0.55)", border: "rgba(255,255,255,0.1)", label: "Tap anywhere", desc: "Enter placing modetap,  any spot on the map to plant a thought there.", fontSize: 22 },
     { icon: "☕", color: "rgba(253,230,138,0.7)", border: "rgba(253,230,138,0.25)", label: "Support", desc: "Help keep Yearning free and alive with a small tip." },
-    { icon: "?", color: "rgba(103,232,249,0.6)", border: "rgba(103,232,249,0.2)", label: "Install", desc: "Add Yearning to your homescreen to use it like a native app.", fontFamily: "'EB Garamond', serif" },
+    { icon: "?", color: "rgba(103,232,249,0.6)", border: "rgba(103,232,249,0.2)", label: "Install", desc: "Add Yearning to your homescreen to use it like a native app.", fontFamily: "'Lora', serif" },
   ];
 
   return (
     <div style={{ width: "100%", height: "100vh", background: "#0a0a0f", overflow: "hidden", position: "relative" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=EB+Garamond:ital,wght@0,400;1,400&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,700;1,400;1,500&family=Lora:ital,wght@0,400;0,500;1,400;1,500&display=swap');
         * { box-sizing: border-box; }
         .leaflet-container { background: #0a0a0f !important; }
         .leaflet-control-zoom a { background: rgba(12,11,18,0.92) !important; color: rgba(232,228,217,0.6) !important; border-color: rgba(255,255,255,0.08) !important; }
@@ -261,11 +261,11 @@ export default function Yearning() {
         display: "flex", alignItems: "flex-start", justifyContent: "space-between",
       }}>
         <div>
-          <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 40, fontWeight: 300, color: "#e8e4d9", letterSpacing: "0.14em", lineHeight: 1 }}>yearning</div>
-          <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 15, color: "rgba(232,228,217,0.28)", letterSpacing: "0.28em", marginTop: 4, fontStyle: "italic" }}>keep a part of yourself somewhere</div>
+          <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, fontWeight: 400, color: "#e8e4d9", letterSpacing: "0.06em", lineHeight: 1 }}>yearning</div>
+          <div style={{ fontFamily: "'Lora', serif", fontSize: 10.5, color: "rgba(232,228,217,0.28)", letterSpacing: "0.12em", marginTop: 4, fontStyle: "italic" }}>leave a part of you somewhere</div>
         </div>
         {pins.length > 0 && (
-          <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 11, color: "rgba(255,255,255,0.22)", letterSpacing: "0.1em", marginTop: 4 }}>
+          <div style={{ fontFamily: "'Lora', serif", fontSize: 11, color: "rgba(255,255,255,0.22)", letterSpacing: "0.1em", marginTop: 4 }}>
             {pins.length} {pins.length === 1 ? "memory" : "memories"}
           </div>
         )}
@@ -291,7 +291,7 @@ export default function Yearning() {
 
         {/* Drop at my location */}
         {locationStatus === "granted" && mode === "view" && (
-          <button onClick={dropAtLocation} title="Leave thought at my location" style={{
+          <button onClick={dropAtLocation} title="Plant thought at my location" style={{
             width: 44, height: 44,
             background: "rgba(192,132,252,0.1)",
             border: "1px solid rgba(192,132,252,0.3)",
@@ -341,21 +341,21 @@ export default function Yearning() {
           >☕</button>
         )}
 
-        {/* Install to homescreen help */}
+        {/* Help center */}
         {mode === "view" && (
-          <button onClick={() => setShowInstallHelp(true)} title="Add to homescreen" style={{
+          <button onClick={() => setShowHelpCenter(true)} title="Help & instructions" style={{
             width: 44, height: 44,
             background: "rgba(103,232,249,0.07)",
             border: "1px solid rgba(103,232,249,0.18)",
             borderRadius: 2, cursor: "pointer", backdropFilter: "blur(8px)",
             display: "flex", alignItems: "center", justifyContent: "center",
-            fontFamily: "'EB Garamond', serif", fontSize: 18,
+            fontFamily: "'Lora', serif", fontSize: 16, fontStyle: "italic", fontWeight: 500,
             color: "rgba(103,232,249,0.5)",
             transition: "all 0.2s",
           }}
             onMouseEnter={(e) => { e.currentTarget.style.color = "rgba(103,232,249,0.85)"; e.currentTarget.style.background = "rgba(103,232,249,0.13)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = "rgba(103,232,249,0.5)"; e.currentTarget.style.background = "rgba(103,232,249,0.07)"; }}
-          >?</button>
+          >i</button>
         )}
 
       </div>
@@ -365,7 +365,7 @@ export default function Yearning() {
         {MOODS.map((m) => (
           <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 7, opacity: 0.42 }}>
             <div style={{ width: 6, height: 6, borderRadius: "50%", background: m.color, flexShrink: 0 }} />
-            <span style={{ fontFamily: "'EB Garamond', serif", fontSize: 10.5, color: "rgba(232,228,217,0.85)", letterSpacing: "0.14em" }}>{m.label}</span>
+            <span style={{ fontFamily: "'Lora', serif", fontSize: 10.5, color: "rgba(232,228,217,0.85)", letterSpacing: "0.14em" }}>{m.label}</span>
           </div>
         ))}
       </div>
@@ -377,7 +377,7 @@ export default function Yearning() {
           background: "rgba(10,10,15,0.88)", backdropFilter: "blur(12px)",
           border: "1px solid rgba(232,228,217,0.09)", borderRadius: 2,
           padding: "10px 22px", zIndex: 100,
-          fontFamily: "'EB Garamond', serif", fontSize: 13,
+          fontFamily: "'Lora', serif", fontSize: 13,
           color: "rgba(232,228,217,0.5)", letterSpacing: "0.12em", fontStyle: "italic",
           animation: "fadeUp 0.25s ease", whiteSpace: "nowrap",
         }}>
@@ -399,24 +399,24 @@ export default function Yearning() {
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 11 }}>
             <div style={{ flex: 1, paddingRight: 10 }}>
-              <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 10, color: getMood(selected.mood).color, letterSpacing: "0.24em", textTransform: "uppercase", marginBottom: 5 }}>
+              <div style={{ fontFamily: "'Lora', serif", fontSize: 10, color: getMood(selected.mood).color, letterSpacing: "0.24em", textTransform: "uppercase", marginBottom: 5 }}>
                 {getMood(selected.mood).label} · {selected.date}
               </div>
-              <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 19, fontWeight: 400, color: "#e8e4d9", lineHeight: 1.25 }}>
+              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, fontWeight: 500, color: "#e8e4d9", lineHeight: 1.3 }}>
                 {selected.title}
               </div>
             </div>
             <button onClick={() => setSelectedPin(null)} style={{ background: "transparent", border: "none", color: "rgba(255,255,255,0.18)", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
           </div>
-          <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 14.5, color: "rgba(232,228,217,0.65)", lineHeight: 1.82, fontStyle: "italic" }}>
+          <div style={{ fontFamily: "'Lora', serif", fontSize: 14.5, color: "rgba(232,228,217,0.65)", lineHeight: 1.82, fontStyle: "italic" }}>
             {selected.body}
           </div>
           <div style={{ marginTop: 14, paddingTop: 11, borderTop: "1px solid rgba(255,255,255,0.05)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 9.5, color: "rgba(255,255,255,0.16)", letterSpacing: "0.06em" }}>
+            <div style={{ fontFamily: "'Lora', serif", fontSize: 9.5, color: "rgba(255,255,255,0.16)", letterSpacing: "0.06em" }}>
               {selected.lat.toFixed(4)}, {selected.lng.toFixed(4)}
             </div>
             <button onClick={() => { setPins((p) => p.filter((x) => x.id !== selected.id)); setSelectedPin(null); showToast("Memory forgotten"); }}
-              style={{ background: "transparent", border: "none", color: "rgba(248,113,113,0.28)", cursor: "pointer", fontFamily: "'EB Garamond', serif", fontSize: 11, letterSpacing: "0.1em", transition: "color 0.2s" }}
+              style={{ background: "transparent", border: "none", color: "rgba(248,113,113,0.28)", cursor: "pointer", fontFamily: "'Lora', serif", fontSize: 11, letterSpacing: "0.1em", transition: "color 0.2s" }}
               onMouseEnter={(e) => e.target.style.color = "rgba(248,113,113,0.6)"}
               onMouseLeave={(e) => e.target.style.color = "rgba(248,113,113,0.28)"}
             >forget this</button>
@@ -440,18 +440,18 @@ export default function Yearning() {
             borderRadius: "0 0 2px 2px", padding: "26px 26px 22px",
           }} onClick={(e) => e.stopPropagation()}>
 
-            <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 21, fontWeight: 300, color: "#e8e4d9", letterSpacing: "0.06em", marginBottom: 4 }}>
-              leave a thought here
+            <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, fontWeight: 400, color: "#e8e4d9", letterSpacing: "0.02em", marginBottom: 4 }}>
+              plant a thought here
             </div>
             {placingCoords && (
-              <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 10, color: "rgba(232,228,217,0.22)", letterSpacing: "0.14em", marginBottom: 20 }}>
+              <div style={{ fontFamily: "'Lora', serif", fontSize: 10, color: "rgba(232,228,217,0.22)", letterSpacing: "0.14em", marginBottom: 20 }}>
                 {placingCoords.lat.toFixed(5)}, {placingCoords.lng.toFixed(5)}
               </div>
             )}
 
             {/* Mood selector */}
             <div style={{ marginBottom: 18 }}>
-              <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 10, color: "rgba(232,228,217,0.32)", letterSpacing: "0.22em", textTransform: "uppercase", marginBottom: 9 }}>mood</div>
+              <div style={{ fontFamily: "'Lora', serif", fontSize: 10, color: "rgba(232,228,217,0.32)", letterSpacing: "0.22em", textTransform: "uppercase", marginBottom: 9 }}>mood</div>
               <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
                 {MOODS.map((m) => (
                   <button key={m.key} onClick={() => setDraft((d) => ({ ...d, mood: m.key }))} style={{
@@ -459,7 +459,7 @@ export default function Yearning() {
                     border: `1px solid ${draft.mood === m.key ? m.color + "88" : "rgba(255,255,255,0.08)"}`,
                     color: draft.mood === m.key ? m.color : "rgba(255,255,255,0.35)",
                     padding: "4px 13px", borderRadius: 1, cursor: "pointer",
-                    fontFamily: "'EB Garamond', serif", fontSize: 12, letterSpacing: "0.1em",
+                    fontFamily: "'Lora', serif", fontSize: 12, letterSpacing: "0.1em",
                     transition: "all 0.15s",
                   }}>{m.label}</button>
                 ))}
@@ -473,7 +473,7 @@ export default function Yearning() {
                 width: "100%", background: "transparent", border: "none",
                 borderBottom: `1px solid ${draft.title ? getMood(draft.mood).color + "44" : "rgba(255,255,255,0.08)"}`,
                 padding: "9px 0", marginBottom: 15,
-                color: "#e8e4d9", fontFamily: "'Cormorant Garamond', serif", fontSize: 18,
+                color: "#e8e4d9", fontFamily: "'Playfair Display', serif", fontSize: 17,
                 outline: "none", letterSpacing: "0.04em", transition: "border-color 0.2s",
               }}
             />
@@ -485,7 +485,7 @@ export default function Yearning() {
                 width: "100%", background: "rgba(255,255,255,0.02)",
                 border: "1px solid rgba(255,255,255,0.07)", borderRadius: 1,
                 padding: "12px", marginBottom: 20,
-                color: "rgba(232,228,217,0.75)", fontFamily: "'EB Garamond', serif",
+                color: "rgba(232,228,217,0.75)", fontFamily: "'Lora', serif",
                 fontSize: 14.5, lineHeight: 1.85, fontStyle: "italic",
                 outline: "none", letterSpacing: "0.02em",
               }}
@@ -497,7 +497,7 @@ export default function Yearning() {
               <button onClick={cancelWrite} style={{
                 background: "transparent", border: "1px solid rgba(255,255,255,0.08)",
                 color: "rgba(255,255,255,0.28)", padding: "8px 18px", borderRadius: 1,
-                cursor: "pointer", fontFamily: "'EB Garamond', serif", fontSize: 13, letterSpacing: "0.1em",
+                cursor: "pointer", fontFamily: "'Lora', serif", fontSize: 13, letterSpacing: "0.1em",
               }}>discard</button>
               <button onClick={handleSave} disabled={!draft.title.trim() || !draft.body.trim()} style={{
                 background: draft.title.trim() && draft.body.trim() ? `${getMood(draft.mood).color}16` : "rgba(255,255,255,0.04)",
@@ -505,7 +505,7 @@ export default function Yearning() {
                 color: draft.title.trim() && draft.body.trim() ? getMood(draft.mood).color : "rgba(255,255,255,0.18)",
                 padding: "8px 22px", borderRadius: 1,
                 cursor: draft.title.trim() && draft.body.trim() ? "pointer" : "not-allowed",
-                fontFamily: "'EB Garamond', serif", fontSize: 13, letterSpacing: "0.12em", transition: "all 0.2s",
+                fontFamily: "'Lora', serif", fontSize: 13, letterSpacing: "0.12em", transition: "all 0.2s",
               }}>plant it</button>
             </div>
           </div>
@@ -539,14 +539,14 @@ export default function Yearning() {
             <div style={{ fontSize: 38, marginBottom: 14, filter: "drop-shadow(0 0 12px rgba(253,230,138,0.4))" }}>☕</div>
 
             <div style={{
-              fontFamily: "'Cormorant Garamond', serif", fontSize: 22,
-              fontWeight: 300, color: "#e8e4d9", letterSpacing: "0.08em", marginBottom: 10,
+              fontFamily: "'Playfair Display', serif", fontSize: 22,
+              fontWeight: 500, color: "#e8e4d9", letterSpacing: "0.03em", marginBottom: 10,
             }}>
               help yearning keep memories
             </div>
 
             <div style={{
-              fontFamily: "'EB Garamond', serif", fontSize: 14.5,
+              fontFamily: "'Lora', serif", fontSize: 14.5,
               color: "rgba(232,228,217,0.5)", lineHeight: 1.8, fontStyle: "italic",
               marginBottom: 24, letterSpacing: "0.02em",
             }}>
@@ -573,8 +573,8 @@ export default function Yearning() {
                   onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(253,230,138,0.14)"; e.currentTarget.style.borderColor = "rgba(253,230,138,0.4)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(253,230,138,0.07)"; e.currentTarget.style.borderColor = "rgba(253,230,138,0.18)"; }}
                 >
-                  <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 13.5, color: "rgba(253,230,138,0.85)", letterSpacing: "0.06em" }}>{t.label}</div>
-                  <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 10, color: "rgba(253,230,138,0.38)", letterSpacing: "0.14em", fontStyle: "italic" }}>{t.sub}</div>
+                  <div style={{ fontFamily: "'Lora', serif", fontSize: 13.5, color: "rgba(253,230,138,0.85)", letterSpacing: "0.06em" }}>{t.label}</div>
+                  <div style={{ fontFamily: "'Lora', serif", fontSize: 10, color: "rgba(253,230,138,0.38)", letterSpacing: "0.14em", fontStyle: "italic" }}>{t.sub}</div>
                 </a>
               ))}
             </div>
@@ -584,18 +584,18 @@ export default function Yearning() {
               background: "rgba(253,230,138,0.1)",
               border: "1px solid rgba(253,230,138,0.3)",
               borderRadius: 2, padding: "11px",
-              fontFamily: "'EB Garamond', serif", fontSize: 13.5,
+              fontFamily: "'Lora', serif", fontSize: 13.5,
               color: "rgba(253,230,138,0.8)", letterSpacing: "0.14em",
               transition: "all 0.18s", cursor: "pointer",
             }}
               onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(253,230,138,0.18)"; e.currentTarget.style.color = "#fde68a"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(253,230,138,0.1)"; e.currentTarget.style.color = "rgba(253,230,138,0.8)"; }}
             >
-              support yearning on ko-fi →
+              support on yearning ko-fi →
             </a>
 
             <div style={{
-              marginTop: 16, fontFamily: "'EB Garamond', serif", fontSize: 11,
+              marginTop: 16, fontFamily: "'Lora', serif", fontSize: 11,
               color: "rgba(255,255,255,0.15)", letterSpacing: "0.12em", fontStyle: "italic",
             }}>
               no account needed · opens in a new tab
@@ -604,53 +604,126 @@ export default function Yearning() {
         </div>
       )}
 
-      {/* Install to Homescreen Modal */}
-      {showInstallHelp && (
+      {/* ── HELP CENTER MODAL (persistent, always accessible via i button) ── */}
+      {showHelpCenter && (
         <div style={{
-          position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)",
-          backdropFilter: "blur(6px)", zIndex: 300,
+          position: "absolute", inset: 0, background: "rgba(0,0,0,0.65)",
+          backdropFilter: "blur(7px)", zIndex: onboardingStep === "guide" ? 500 : 300,
           display: "flex", alignItems: "center", justifyContent: "center",
           animation: "fadeIn 0.2s ease",
-        }} onClick={(e) => e.target === e.currentTarget && setShowInstallHelp(false)}>
+        }} onClick={(e) => e.target === e.currentTarget && onboardingStep !== "guide" && setShowHelpCenter(false)}>
           <div className="pin-card" style={{
-            width: 380, maxWidth: "90vw",
-            background: "rgba(11,10,17,0.98)",
-            border: "1px solid rgba(103,232,249,0.15)",
-            borderTop: "2px solid rgba(103,232,249,0.4)",
+            width: 420, maxWidth: "92vw",
+            background: "rgba(11,10,17,0.99)",
+            border: "1px solid rgba(103,232,249,0.13)",
+            borderTop: "2px solid rgba(103,232,249,0.45)",
             borderRadius: "0 0 2px 2px",
-            padding: "30px 26px 24px", position: "relative",
+            padding: "30px 28px 26px",
+            maxHeight: "90vh", overflowY: "auto",
+            position: "relative",
           }} onClick={(e) => e.stopPropagation()}>
 
-            <button onClick={() => setShowInstallHelp(false)} style={{
-              position: "absolute", top: 14, right: 16,
-              background: "transparent", border: "none",
-              color: "rgba(255,255,255,0.2)", cursor: "pointer", fontSize: 20, lineHeight: 1,
-            }}>×</button>
+            {/* Close — only when not in onboarding */}
+            {onboardingStep !== "guide" && (
+              <button onClick={() => setShowHelpCenter(false)} style={{
+                position: "absolute", top: 14, right: 16,
+                background: "transparent", border: "none",
+                color: "rgba(255,255,255,0.2)", cursor: "pointer", fontSize: 20, lineHeight: 1,
+              }}>×</button>
+            )}
 
-            <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 300, color: "#e8e4d9", letterSpacing: "0.08em", marginBottom: 5 }}>
-              add to your homescreen
-            </div>
-            <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 13.5, color: "rgba(232,228,217,0.38)", fontStyle: "italic", marginBottom: 22, letterSpacing: "0.02em" }}>
-              keep yearning just a tap away
+            {/* Header */}
+            <div style={{ fontFamily: "'Lora', serif", fontSize: 10, color: "rgba(232,228,217,0.22)", letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 14 }}>help center</div>
+            <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 21, fontWeight: 500, color: "#e8e4d9", letterSpacing: "0.02em", marginBottom: 22 }}>how to use yearning</div>
+
+            {/* ── Section 1: Icon Guide ── */}
+            <div style={{ fontFamily: "'Lora', serif", fontSize: 10, color: "rgba(232,228,217,0.22)", letterSpacing: "0.26em", textTransform: "uppercase", marginBottom: 14 }}>your tools</div>
+
+            {ICON_GUIDE.map(({ icon, color, border, label, desc, fontSize, fontFamily }) => (
+              <div key={label} style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 14 }}>
+                <div style={{
+                  width: 36, height: 36, borderRadius: 2, flexShrink: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  background: "rgba(255,255,255,0.03)",
+                  border: `1px solid ${border}`,
+                  color, fontSize: fontSize ?? 16,
+                  fontFamily: fontFamily ?? "inherit",
+                }}>{icon}</div>
+                <div style={{ paddingTop: 2 }}>
+                  <div style={{ fontFamily: "'Lora', serif", fontSize: 10, color: "rgba(232,228,217,0.32)", letterSpacing: "0.22em", textTransform: "uppercase", marginBottom: 3 }}>{label}</div>
+                  <div style={{ fontFamily: "'Lora', serif", fontStyle: "italic", fontSize: 13.5, color: "rgba(232,228,217,0.52)", lineHeight: 1.7 }}>{desc}</div>
+                </div>
+              </div>
+            ))}
+
+            {/* Moods */}
+            <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", margin: "16px 0 14px" }} />
+            <div style={{ fontFamily: "'Lora', serif", fontSize: 10, color: "rgba(232,228,217,0.22)", letterSpacing: "0.26em", textTransform: "uppercase", marginBottom: 11 }}>moods</div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 4 }}>
+              {MOODS.map((m) => (
+                <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ width: 7, height: 7, borderRadius: "50%", background: m.color, flexShrink: 0 }} />
+                  <span style={{ fontFamily: "'Lora', serif", fontSize: 12.5, color: "rgba(232,228,217,0.42)" }}>{m.label}</span>
+                </div>
+              ))}
             </div>
 
-            <div style={{ background: "rgba(103,232,249,0.05)", border: "1px solid rgba(103,232,249,0.14)", borderLeft: "2px solid rgba(103,232,249,0.45)", borderRadius: "0 2px 2px 0", padding: "14px 16px", marginBottom: 12 }}>
-              <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 10, color: "rgba(103,232,249,0.65)", letterSpacing: "0.24em", textTransform: "uppercase", marginBottom: 10 }}>iPhone · Safari</div>
+            {/* ── Section 2: Add to Homescreen ── */}
+            <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", margin: "20px 0 16px" }} />
+            <div style={{ fontFamily: "'Lora', serif", fontSize: 10, color: "rgba(232,228,217,0.22)", letterSpacing: "0.26em", textTransform: "uppercase", marginBottom: 6 }}>add to homescreen</div>
+            <div style={{ fontFamily: "'Lora', serif", fontSize: 13, color: "rgba(232,228,217,0.35)", fontStyle: "italic", marginBottom: 14, lineHeight: 1.65 }}>
+              Keep yearning just a tap away — it works like a native app.
+            </div>
+
+            <div style={{ background: "rgba(103,232,249,0.05)", border: "1px solid rgba(103,232,249,0.13)", borderLeft: "2px solid rgba(103,232,249,0.45)", borderRadius: "0 2px 2px 0", padding: "13px 15px", marginBottom: 10 }}>
+              <div style={{ fontFamily: "'Lora', serif", fontSize: 10, color: "rgba(103,232,249,0.65)", letterSpacing: "0.24em", textTransform: "uppercase", marginBottom: 9 }}>iPhone · Safari</div>
               <Step n={1} c="rgba(103,232,249,0.4)">Open in Safari and tap the <Tag c="cyan">Share</Tag> button at the bottom</Step>
               <Step n={2} c="rgba(103,232,249,0.4)">Scroll down and tap <Tag c="cyan">Add to Home Screen</Tag></Step>
               <Step n={3} c="rgba(103,232,249,0.4)">Tap <Tag c="cyan">Add</Tag> in the top right corner</Step>
             </div>
 
-            <div style={{ background: "rgba(134,239,172,0.05)", border: "1px solid rgba(134,239,172,0.14)", borderLeft: "2px solid rgba(134,239,172,0.45)", borderRadius: "0 2px 2px 0", padding: "14px 16px" }}>
-              <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 10, color: "rgba(134,239,172,0.65)", letterSpacing: "0.24em", textTransform: "uppercase", marginBottom: 10 }}>Android · Chrome</div>
+            <div style={{ background: "rgba(134,239,172,0.05)", border: "1px solid rgba(134,239,172,0.13)", borderLeft: "2px solid rgba(134,239,172,0.45)", borderRadius: "0 2px 2px 0", padding: "13px 15px" }}>
+              <div style={{ fontFamily: "'Lora', serif", fontSize: 10, color: "rgba(134,239,172,0.65)", letterSpacing: "0.24em", textTransform: "uppercase", marginBottom: 9 }}>Android · Chrome</div>
               <Step n={1} c="rgba(134,239,172,0.4)">Open in Chrome and tap the <Tag c="green">⋮</Tag> menu in the top right</Step>
               <Step n={2} c="rgba(134,239,172,0.4)">Tap <Tag c="green">Add to Home screen</Tag></Step>
               <Step n={3} c="rgba(134,239,172,0.4)">Tap <Tag c="green">Add</Tag> to confirm</Step>
             </div>
 
-            <div style={{ marginTop: 16, fontFamily: "'EB Garamond', serif", fontSize: 11, color: "rgba(255,255,255,0.15)", letterSpacing: "0.12em", fontStyle: "italic", textAlign: "center" }}>
-              works like a native app · no install needed
+            <div style={{ marginTop: 14, fontFamily: "'Lora', serif", fontSize: 11, color: "rgba(255,255,255,0.13)", letterSpacing: "0.1em", fontStyle: "italic", textAlign: "center" }}>
+              no download needed · your data stays on your device
             </div>
+
+            {/* Onboarding footer — only shown during first-time flow */}
+            {onboardingStep === "guide" && (
+              <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", marginTop: 20, paddingTop: 18, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <button
+                  onClick={() => { setShowHelpCenter(false); setOnboardingStep("welcome"); }}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    color: "rgba(232,228,217,0.28)",
+                    fontFamily: "'Lora', serif", fontSize: 12,
+                    letterSpacing: "0.16em", cursor: "pointer",
+                    padding: "9px 18px", borderRadius: 1, transition: "all 0.15s",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = "rgba(232,228,217,0.5)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = "rgba(232,228,217,0.28)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"; }}
+                >← back</button>
+                <button
+                  onClick={() => { setShowHelpCenter(false); dismissOnboarding(); }}
+                  style={{
+                    background: "rgba(192,132,252,0.12)",
+                    border: "1px solid rgba(192,132,252,0.48)",
+                    color: "rgba(192,132,252,0.9)",
+                    fontFamily: "'Lora', serif", fontSize: 13,
+                    letterSpacing: "0.2em", padding: "11px 28px",
+                    borderRadius: 1, cursor: "pointer", transition: "all 0.18s",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(192,132,252,0.2)"; e.currentTarget.style.color = "#c084fc"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(192,132,252,0.12)"; e.currentTarget.style.color = "rgba(192,132,252,0.9)"; }}
+                >begin ✦</button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -675,18 +748,18 @@ export default function Yearning() {
             animation: "fadeUp 0.3s ease",
           }}>
             {/* Eyebrow */}
-            <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 10, color: "rgba(232,228,217,0.22)", letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 16 }}>welcome</div>
+            <div style={{ fontFamily: "'Lora', serif", fontSize: 10, color: "rgba(232,228,217,0.22)", letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 16 }}>welcome</div>
 
             {/* Wordmark */}
-            <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 30, fontWeight: 300, color: "#e8e4d9", letterSpacing: "0.12em", lineHeight: 1, marginBottom: 8 }}>
+            <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 500, color: "#e8e4d9", letterSpacing: "0.03em", lineHeight: 1, marginBottom: 8 }}>
               Welcome to Yearning
             </div>
-            <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 13, color: "rgba(232,228,217,0.32)", fontStyle: "italic", letterSpacing: "0.1em", marginBottom: 24 }}>
-              keep a part of you somewhere
+            <div style={{ fontFamily: "'Lora', serif", fontSize: 13, color: "rgba(232,228,217,0.32)", fontStyle: "italic", letterSpacing: "0.1em", marginBottom: 24 }}>
+              leave a part of you somewhere
             </div>
 
             {/* Body */}
-            <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 14.5, color: "rgba(232,228,217,0.58)", lineHeight: 1.88, fontStyle: "italic", letterSpacing: "0.02em" }}>
+            <div style={{ fontFamily: "'Lora', serif", fontSize: 14.5, color: "rgba(232,228,217,0.58)", lineHeight: 1.88, fontStyle: "italic", letterSpacing: "0.02em" }}>
               A quiet place to plant your thoughts, feelings, and memories exactly where they happened — anywhere on earth.
             </div>
 
@@ -700,7 +773,7 @@ export default function Yearning() {
               margin: "24px 0 26px",
             }}>
               <div style={{ fontSize: 15, color: "rgba(103,232,249,0.75)", marginTop: 1, flexShrink: 0, lineHeight: 1 }}>◉</div>
-              <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 13.5, color: "rgba(232,228,217,0.52)", lineHeight: 1.8, letterSpacing: "0.02em" }}>
+              <div style={{ fontFamily: "'Lora', serif", fontSize: 13.5, color: "rgba(232,228,217,0.52)", lineHeight: 1.8, letterSpacing: "0.02em" }}>
                 <span style={{ color: "rgba(232,228,217,0.9)", fontStyle: "italic" }}>Your memories never leave your device.</span>
                 <br />
                 Everything is stored locally in your browser — no servers, no accounts, no tracking. What you write is entirely yours.
@@ -715,12 +788,12 @@ export default function Yearning() {
 
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
               <button
-                onClick={() => setOnboardingStep("guide")}
+                onClick={() => { setOnboardingStep("guide"); setShowHelpCenter(true); }}
                 style={{
                   background: "rgba(192,132,252,0.12)",
                   border: "1px solid rgba(192,132,252,0.48)",
                   color: "rgba(192,132,252,0.9)",
-                  fontFamily: "'EB Garamond', serif", fontSize: 13,
+                  fontFamily: "'Lora', serif", fontSize: 13,
                   letterSpacing: "0.2em", padding: "11px 30px",
                   borderRadius: 1, cursor: "pointer", transition: "all 0.18s",
                 }}
@@ -734,97 +807,7 @@ export default function Yearning() {
         </div>
       )}
 
-      {/* ── ONBOARDING ── Icon Guide (Step 2) */}
-      {onboardingStep === "guide" && (
-        <div style={{
-          position: "absolute", inset: 0,
-          background: "rgba(0,0,0,0.78)",
-          backdropFilter: "blur(10px)",
-          zIndex: 400,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          animation: "fadeIn 0.2s ease",
-        }}>
-          <div style={{
-            width: 440, maxWidth: "92vw",
-            background: "rgba(11,10,17,0.99)",
-            borderTop: "2px solid rgba(103,232,249,0.45)",
-            border: "1px solid rgba(103,232,249,0.12)",
-            borderRadius: "0 0 2px 2px",
-            padding: "32px 32px 26px",
-            maxHeight: "90vh", overflowY: "auto",
-            animation: "fadeUp 0.25s ease",
-          }}>
-            <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 10, color: "rgba(232,228,217,0.22)", letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 16 }}>how it works</div>
-            <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 300, color: "#e8e4d9", letterSpacing: "0.08em", marginBottom: 22 }}>your tools</div>
-
-            {ICON_GUIDE.map(({ icon, color, border, label, desc, fontSize, fontFamily }) => (
-              <div key={label} style={{ display: "flex", alignItems: "flex-start", gap: 15, marginBottom: 15 }}>
-                <div style={{
-                  width: 38, height: 38, borderRadius: 2, flexShrink: 0,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  background: "rgba(255,255,255,0.03)",
-                  border: `1px solid ${border}`,
-                  color, fontSize: fontSize ?? 17,
-                  fontFamily: fontFamily ?? "inherit",
-                }}>{icon}</div>
-                <div style={{ paddingTop: 2 }}>
-                  <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 10, color: "rgba(232,228,217,0.32)", letterSpacing: "0.24em", textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
-                  <div style={{ fontFamily: "'EB Garamond', serif", fontStyle: "italic", fontSize: 13.5, color: "rgba(232,228,217,0.52)", lineHeight: 1.7 }}>{desc}</div>
-                </div>
-              </div>
-            ))}
-
-            {/* Moods */}
-            <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", margin: "18px 0 15px" }} />
-            <div style={{ fontFamily: "'EB Garamond', serif", fontSize: 10, color: "rgba(232,228,217,0.22)", letterSpacing: "0.26em", textTransform: "uppercase", marginBottom: 12 }}>moods</div>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              {MOODS.map((m) => (
-                <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                  <div style={{ width: 7, height: 7, borderRadius: "50%", background: m.color, flexShrink: 0 }} />
-                  <span style={{ fontFamily: "'EB Garamond', serif", fontSize: 12.5, color: "rgba(232,228,217,0.42)" }}>{m.label}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Dots */}
-            <div style={{ display: "flex", gap: 7, justifyContent: "center", margin: "22px 0 0" }}>
-              <div style={{ width: 5, height: 5, borderRadius: "50%", background: "rgba(232,228,217,0.14)" }} />
-              <div style={{ width: 5, height: 5, borderRadius: "50%", background: "rgba(192,132,252,0.7)" }} />
-            </div>
-
-            {/* Nav */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 22 }}>
-              <button
-                onClick={() => setOnboardingStep("welcome")}
-                style={{
-                  background: "transparent",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  color: "rgba(232,228,217,0.28)",
-                  fontFamily: "'EB Garamond', serif", fontSize: 12,
-                  letterSpacing: "0.16em", cursor: "pointer",
-                  padding: "9px 18px", borderRadius: 1,
-                  transition: "all 0.15s",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.color = "rgba(232,228,217,0.5)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = "rgba(232,228,217,0.28)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"; }}
-              >← back</button>
-              <button
-                onClick={dismissOnboarding}
-                style={{
-                  background: "rgba(192,132,252,0.12)",
-                  border: "1px solid rgba(192,132,252,0.48)",
-                  color: "rgba(192,132,252,0.9)",
-                  fontFamily: "'EB Garamond', serif", fontSize: 13,
-                  letterSpacing: "0.2em", padding: "11px 28px",
-                  borderRadius: 1, cursor: "pointer", transition: "all 0.18s",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(192,132,252,0.2)"; e.currentTarget.style.color = "#c084fc"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(192,132,252,0.12)"; e.currentTarget.style.color = "rgba(192,132,252,0.9)"; }}
-              >begin ✦</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* onboarding step 2 is now rendered inside the Help Center modal above */}
 
       {/* Toast */}
       {toast && (
@@ -833,7 +816,7 @@ export default function Yearning() {
           background: "rgba(11,10,17,0.92)", backdropFilter: "blur(10px)",
           border: "1px solid rgba(232,228,217,0.09)", borderRadius: 2,
           padding: "9px 20px", zIndex: 300,
-          fontFamily: "'EB Garamond', serif", fontSize: 12.5,
+          fontFamily: "'Lora', serif", fontSize: 12.5,
           color: "rgba(232,228,217,0.52)", letterSpacing: "0.14em", fontStyle: "italic",
           whiteSpace: "nowrap", pointerEvents: "none",
           animation: "toastIn 0.25s ease",
