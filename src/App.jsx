@@ -33,7 +33,7 @@ const getMood = (key) => MOODS.find((m) => m.key === key) ?? MOODS[0];
 const TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
 const TILE_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>';
 
-const KOFI_URL = "https://ko-fi.com/donatetoyearning";
+const KOFI_URL = "https://ko-fi.com/supportyearning";
 
 export default function Yearning() {
   const mapContainerRef = useRef(null);
