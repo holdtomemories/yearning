@@ -33,7 +33,7 @@ const getMood = (key) => MOODS.find((m) => m.key === key) ?? MOODS[0];
 const TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
 const TILE_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>';
 
-const KOFI_URL = "https://ko-fi.com/donatetoyearning";
+const KOFI_URL = "https://ko-fi.com/supportyearning";
 
 export default function Yearning() {
   const mapContainerRef = useRef(null);
@@ -591,7 +591,7 @@ export default function Yearning() {
               onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(253,230,138,0.18)"; e.currentTarget.style.color = "#fde68a"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(253,230,138,0.1)"; e.currentTarget.style.color = "rgba(253,230,138,0.8)"; }}
             >
-              support on ko-fi →
+              support yearning on ko-fi →
             </a>
 
             <div style={{
