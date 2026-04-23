@@ -1,4 +1,5 @@
 import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { useState, useEffect, useRef, useCallback } from "react";
 
 const Tag = ({ c, children }) => (
@@ -823,6 +824,7 @@ export default function Yearning() {
           animation: "toastIn 0.25s ease",
         }}>{toast}</div>
       )}
+        <SpeedInsights />
         <Analytics />
     </div>
   );
