@@ -1,3 +1,4 @@
+import { Analytics } from "@vercel/analytics/react";
 import { useState, useEffect, useRef, useCallback } from "react";
 
 const Tag = ({ c, children }) => (
@@ -822,6 +823,18 @@ export default function Yearning() {
           animation: "toastIn 0.25s ease",
         }}>{toast}</div>
       )}
+        <Analytics />
     </div>
   );
-}
+} 
+
+// Add Pokayoke for the Forget Memory add a pokayoke 
+// when user deletes a memory -- make it emotional, 
+// and ask for confirmation and add note, that the 
+// memory can't be recovered anymore
+
+// change font - done 
+// add audio if possible 
+//setup ko-fi 
+//free text option to name the emotions
+// export option 
