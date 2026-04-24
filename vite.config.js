@@ -8,17 +8,17 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: 'Ping',
-        short_name: 'Ping',
-        description: 'Say it. Ping it.',
+        name: 'Yearning',
+        short_name: 'Yearning',
+        description: 'leave a part of you somewhere',
         theme_color: '#0a0a0f',
         background_color: '#0a0a0f',
         display: 'standalone',
         orientation: 'portrait',
         start_url: '/',
         icons: [
-          { src: '/icon-1922.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icon-5122.png', sizes: '512x512', type: 'image/png' }
+          { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png' }
         ]
       }
     })

@@ -1,3 +1,5 @@
+import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { useState, useEffect, useRef, useCallback } from "react";
 
 /* ─── Constants ──────────────────────────────────────────────────────────── */
@@ -993,6 +995,8 @@ export default function Yearning() {
           boxShadow: isDark ? "0 4px 16px rgba(0,0,0,0.4)" : "0 4px 16px rgba(0,0,0,0.1)",
         }}>{toast}</div>
       )}
+       <SpeedInsights />
+        <Analytics />
     </div>
   );
 }
