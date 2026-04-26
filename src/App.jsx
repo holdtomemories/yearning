@@ -61,7 +61,7 @@ const GLOBAL_CSS = `
     border-color: rgba(255,255,255,0.1) !important;
     width: 36px !important; height: 36px !important; line-height: 36px !important;
   }
-  .leaflet-control-zoom a:hover { background: rgba(30,28,45,0.95) !important; color: #e8e4d9 !important; }
+  .leaflet-control-zoom a:hover { background: rgba(30,28,45,0.95) !important; color: #ffffff !important; }
   .leaflet-control-attribution { background: rgba(10,10,15,0.6) !important; color: rgba(255,255,255,0.22) !important; font-size: 9px !important; }
   .leaflet-control-attribution a { color: rgba(255,255,255,0.32) !important; }
   .leaflet-popup-content-wrapper, .leaflet-popup-tip-container { display: none !important; }
@@ -122,7 +122,7 @@ const GLOBAL_CSS = `
     width: 100%; background: rgba(11,10,17,0.92);
     border: 1px solid rgba(255,255,255,0.1); border-radius: 4px;
     padding: 10px 36px 10px 14px;
-    color: #e8e4d9; font-family: 'Lora', serif; font-size: 13px; letter-spacing: 0.06em;
+    color: #ffffff; font-family: 'Lora', serif; font-size: 13px; letter-spacing: 0.06em;
     outline: none; backdrop-filter: blur(12px); transition: border-color 0.2s;
   }
   .yr-search-input::placeholder { color: rgba(232,228,217,0.35); font-style: italic; }
@@ -165,7 +165,7 @@ function useTheme(isDark) {
   return {
     panelBg:     isDark ? "rgba(11,10,17,0.97)"    : "rgba(250,248,244,0.97)",
     panelBorder: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
-    textPrimary: isDark ? "#e8e4d9"                : "#1a1814",
+    textPrimary: isDark ? "#ffffff"                : "#1a1814",
     textSec:     isDark ? "rgba(232,228,217,0.72)" : "rgba(26,24,20,0.72)",
     textMuted:   isDark ? "rgba(232,228,217,0.45)" : "rgba(26,24,20,0.45)",
     toolBg:      isDark ? "rgba(11,10,17,0.88)"    : "rgba(250,248,244,0.88)",
@@ -573,7 +573,7 @@ function WelcomeModal({ onStartTour, onSkip }) {
         boxShadow: "0 32px 80px rgba(0,0,0,0.7)",
       }}>
         <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: "rgba(232,228,217,0.45)", letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 16 }}>welcome</div>
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 28, fontWeight: 500, color: "#e8e4d9", letterSpacing: "0.03em", lineHeight: 1, marginBottom: 8 }}>Welcome to Yearning</div>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 28, fontWeight: 500, color: "#ffffff", letterSpacing: "0.03em", lineHeight: 1, marginBottom: 8 }}>Welcome to Yearning</div>
         <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: "rgba(232,228,217,0.45)", fontStyle: "italic", letterSpacing: "0.1em", marginBottom: 24 }}>leave a part of yourself somewhere</div>
         <div style={{ fontFamily: "'Lora',serif", fontSize: 14.5, color: "rgba(232,228,217,0.72)", lineHeight: 1.88, fontStyle: "italic", letterSpacing: "0.02em" }}>
           A quiet place to plant your thoughts, feelings, and memories exactly where they happened — anywhere on earth.
@@ -581,7 +581,7 @@ function WelcomeModal({ onStartTour, onSkip }) {
         <div style={{ display: "flex", alignItems: "flex-start", gap: 14, background: "rgba(103,232,249,0.05)", border: "1px solid rgba(103,232,249,0.15)", borderLeft: "2px solid rgba(103,232,249,0.55)", padding: "14px 16px", margin: "24px 0 26px" }}>
           <div style={{ fontSize: 15, color: "rgba(103,232,249,0.8)", marginTop: 1, flexShrink: 0 }}>◉</div>
           <div style={{ fontFamily: "'Lora',serif", fontSize: 13.5, color: "rgba(232,228,217,0.72)", lineHeight: 1.8, letterSpacing: "0.02em" }}>
-            <span style={{ color: "#e8e4d9", fontStyle: "italic" }}>Your memories never leave your device.</span><br />
+            <span style={{ color: "#ffffff", fontStyle: "italic" }}>Your memories never leave your device.</span><br />
             Everything is stored locally — no servers, no accounts, no tracking.
           </div>
         </div>
@@ -643,7 +643,7 @@ function TourOverlay({ step, total, onNext, onPrev, onSkip }) {
       {/* Tooltip */}
       <div ref={tipRef} className="yr-tour-tip" style={{ top: tipPos.top, left: tipPos.left }}>
         <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: "rgba(192,132,252,0.7)", letterSpacing: "0.24em", textTransform: "uppercase", marginBottom: 6 }}>{step + 1} of {total}</div>
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, color: "#e8e4d9", marginBottom: 8, lineHeight: 1.3 }}>{title}</div>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, color: "#ffffff", marginBottom: 8, lineHeight: 1.3 }}>{title}</div>
         <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: "rgba(232,228,217,0.7)", lineHeight: 1.7, fontStyle: "italic", marginBottom: 14 }}>{desc}</div>
         <div style={{ display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center" }}>
           <button onClick={() => { haptic("light"); onSkip(); }} style={{ background: "transparent", border: "none", color: "rgba(232,228,217,0.4)", fontFamily: "'Lora',serif", fontSize: 11, letterSpacing: "0.14em", cursor: "pointer", padding: 0 }}>skip</button>
