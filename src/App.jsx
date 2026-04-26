@@ -1117,7 +1117,7 @@ export default function Yearning() {
         display: "flex", alignItems: "flex-start", justifyContent: "space-between",
       }}>
         <div>
-          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 28, fontWeight: 400, color: T.textPrimary, letterSpacing: "0.06em", lineHeight: 1 }}>yearning</div>
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 26, fontWeight: 400, color: T.textPrimary, letterSpacing: "0.06em", lineHeight: 1 }}>yearning</div>
           <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.12em", marginTop: 4, fontStyle: "italic" }}>leave a part of yourself somewhere</div>
         </div>
         {pins.length > 0 && (
@@ -1321,7 +1321,7 @@ export default function Yearning() {
 
       {/* Toast */}
       <Toast msg={toast} />
-        <SpeedInsights />
+       <SpeedInsights />
         <Analytics />
     </div>
   );
