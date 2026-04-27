@@ -3,23 +3,38 @@ import { SpeedInsights } from '@vercel/speed-insights/react';
 import { useState, useEffect, useRef, useCallback } from "react";
 
 /* ─── Constants ─────────────────────────────────────────────────────────── */
-const STORAGE_KEY   = "yearning_pins_v3";
-const ONBOARDED_KEY = "yearning_onboarded_v3";
-const KOFI_URL      = "https://ko-fi.com/donatetoyearning";
+const STORAGE_KEY    = "yearning_pins_v3";
+const ONBOARDED_KEY  = "yearning_onboarded_v3";
+const NOTIF_LOCS_KEY = "yearning_notified_locs_v1";
+const KOFI_URL       = "https://ko-fi.com/donatetoyearning";
 const DEFAULT_CENTER = [20, 0];
 const DEFAULT_ZOOM   = 2;
 const TILE_ATTR      = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>';
-const TILE_DARK  = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
-const TILE_LIGHT = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+const TILE_DARK      = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+const TILE_LIGHT     = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+const NEARBY_RADIUS_KM = 5;
+const NOTIF_COOLDOWN_KM = 1.0; // don't re-notify within 1km of last notification
+const NOTIF_COOLDOWN_MS = 30 * 60 * 1000; // 30 min cooldown between notifications
 
-const MOODS = [
-  { key: "wonder",    label: "Wonder",    color: "#c084fc" },
-  { key: "peace",     label: "Peace",     color: "#67e8f9" },
-  { key: "longing",   label: "Longing",   color: "#fb923c" },
-  { key: "joy",       label: "Joy",       color: "#86efac" },
-  { key: "ache",      label: "Ache",      color: "#f87171" },
-  { key: "gratitude", label: "Gratitude", color: "#fde68a" },
-  { key: "other",     label: "Other…",    color: "#a8a29e" },
+const MOODS_DARK = [
+  { key: "wonder",    label: "Wonder",    color: "#a855f7" },
+  { key: "peace",     label: "Peace",     color: "#06b6d4" },
+  { key: "longing",   label: "Longing",   color: "#f97316" },
+  { key: "joy",       label: "Joy",       color: "#22c55e" },
+  { key: "ache",      label: "Ache",      color: "#ef4444" },
+  { key: "gratitude", label: "Gratitude", color: "#f59e0b" },
+  { key: "other",     label: "Other",     color: "#9ca3af" },
+];
+
+// High-contrast versions for light map (darker, more saturated)
+const MOODS_LIGHT = [
+  { key: "wonder",    label: "Wonder",    color: "#6d28d9" },
+  { key: "peace",     label: "Peace",     color: "#0e7490" },
+  { key: "longing",   label: "Longing",   color: "#9a3412" },
+  { key: "joy",       label: "Joy",       color: "#15803d" },
+  { key: "ache",      label: "Ache",      color: "#b91c1c" },
+  { key: "gratitude", label: "Gratitude", color: "#92400e" },
+  { key: "other",     label: "Other",     color: "#4b5563" },
 ];
 
 const TOUR_STEPS = [
@@ -29,12 +44,17 @@ const TOUR_STEPS = [
   { targetId: "btn-reset",         title: "Reset View ⌂",    desc: "Returns the map to the default world view — handy when you're lost in a zoom." },
   { targetId: "btn-theme",         title: "Light / Dark ◑",  desc: "Toggle between a moody dark map and a clean light map. Colors adapt automatically." },
   { targetId: "search-container",  title: "Search Places",   desc: "Type any city, country, or address to fly the map there instantly." },
+  { targetId: "btn-exportimport",  title: "Export / Import", desc: "Download a backup of all your memories, or restore them on another device." },
   { targetId: "btn-tipjar",        title: "Support ☕",      desc: "Keep Yearning free — buy us a coffee if it brings you joy." },
   { targetId: "btn-help",          title: "Help Center i",   desc: "This button always brings you back here. Your guide lives here permanently." },
 ];
 
 /* ─── Helpers ───────────────────────────────────────────────────────────── */
-const getMood = (key) => MOODS.find((m) => m.key === key) ?? MOODS[0];
+const getMoods = (isDark) => (isDark ? MOODS_DARK : MOODS_LIGHT);
+const getMoodByKey = (key, isDark = true) => {
+  const set = getMoods(isDark);
+  return set.find((m) => m.key === key) ?? set[0];
+};
 
 function loadPins() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; }
@@ -42,29 +62,190 @@ function loadPins() {
 function savePins(pins) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(pins)); } catch {}
 }
+function loadNotifLocs() {
+  try { return JSON.parse(localStorage.getItem(NOTIF_LOCS_KEY)) || []; } catch { return []; }
+}
+function saveNotifLocs(locs) {
+  try { localStorage.setItem(NOTIF_LOCS_KEY, JSON.stringify(locs.slice(-30))); } catch {}
+}
+
+// Haptic: uses Vibration API
 function haptic(style = "light") {
   try {
-    if (navigator.vibrate) navigator.vibrate(style === "heavy" ? 30 : style === "medium" ? 15 : 8);
+    if (navigator.vibrate) {
+      if (style === "heavy")       navigator.vibrate([30, 10, 30, 10, 30]);
+      else if (style === "success") navigator.vibrate([15, 40, 15]);
+      else if (style === "medium")  navigator.vibrate(20);
+      else                          navigator.vibrate(8);
+    }
   } catch {}
+}
+
+// Sound: tiny AudioContext tones
+let _sharedAudioCtx = null;
+function getAudioCtx() {
+  try {
+    if (!_sharedAudioCtx) {
+      _sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (_sharedAudioCtx.state === "suspended") _sharedAudioCtx.resume();
+    return _sharedAudioCtx;
+  } catch { return null; }
+}
+
+function playSound(type = "plant") {
+  try {
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    if (type === "plant") {
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(523, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.18);
+      gain.gain.setValueAtTime(0.18, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.4);
+    } else if (type === "forget") {
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(440, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 0.35);
+      gain.gain.setValueAtTime(0.14, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.5);
+    } else if (type === "chime") {
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(660, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(990, ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.10, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.3);
+    }
+  } catch {}
+}
+
+// Haversine distance in km
+function distanceKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Detect if mobile-ish
+function isMobileDevice() {
+  if (typeof window === "undefined") return false;
+  return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768;
+}
+
+// Request push notification permission
+async function requestNotificationPermission() {
+  try {
+    if (!("Notification" in window)) return false;
+    if (Notification.permission === "granted") return true;
+    if (Notification.permission === "denied") return false;
+    const result = await Notification.requestPermission();
+    return result === "granted";
+  } catch { return false; }
+}
+
+// Show a local notification
+function showNotification(title, body, onClick) {
+  try {
+    if (!("Notification" in window) || Notification.permission !== "granted") return false;
+    const n = new Notification(title, {
+      body,
+      icon: "/favicon.ico",
+      badge: "/favicon.ico",
+      vibrate: [100, 50, 100],
+      tag: "yearning-location",
+      renotify: true,
+      silent: false,
+    });
+    if (onClick) n.onclick = () => { try { window.focus(); onClick(); } catch {} };
+    return true;
+  } catch { return false; }
 }
 
 /* ─── CSS ───────────────────────────────────────────────────────────────── */
 const GLOBAL_CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,700;1,400;1,500&family=Lora:ital,wght@0,400;0,500;1,400;1,500&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,700;1,400;1,500&family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a0f; }
-
-  .leaflet-container { background: #0a0a0f !important; }
-  .leaflet-control-zoom a {
-    background: rgba(12,11,18,0.92) !important;
-    color: rgba(232,228,217,0.7) !important;
-    border-color: rgba(255,255,255,0.1) !important;
-    width: 36px !important; height: 36px !important; line-height: 36px !important;
+  html, body, #root {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #0a0a0f;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
   }
+  body { overscroll-behavior: none; -webkit-overflow-scrolling: touch; }
+  html { overscroll-behavior-y: contain; }
+
+  .leaflet-container {
+    background: #0a0a0f !important;
+    touch-action: pan-x pan-y pinch-zoom !important;
+    font-family: 'Lora', serif !important;
+  }
+  body.theme-light .leaflet-container { background: #f5f3ee !important; }
+
+  .leaflet-control-zoom {
+    border: none !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+  }
+  .leaflet-left .leaflet-control-zoom { margin-left: 14px !important; }
+  .leaflet-control-zoom a {
+    background: rgba(11,10,17,0.92) !important;
+    color: rgba(232,228,217,0.9) !important;
+    border: 1px solid rgba(255,255,255,0.16) !important;
+    width: 44px !important; height: 44px !important; line-height: 44px !important;
+    font-size: 20px !important;
+    display: flex !important; align-items: center !important; justify-content: center !important;
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+    transition: all 0.15s !important;
+    border-radius: 6px !important;
+    margin-bottom: 6px !important;
+    font-weight: 400 !important;
+  }
+  .leaflet-control-zoom-in { border-radius: 6px !important; }
+  .leaflet-control-zoom-out { border-radius: 6px !important; margin-bottom: 0 !important; }
   .leaflet-control-zoom a:hover { background: rgba(30,28,45,0.95) !important; color: #ffffff !important; }
-  .leaflet-control-attribution { background: rgba(10,10,15,0.6) !important; color: rgba(255,255,255,0.22) !important; font-size: 9px !important; }
-  .leaflet-control-attribution a { color: rgba(255,255,255,0.32) !important; }
+  .leaflet-control-attribution {
+    background: rgba(10,10,15,0.7) !important;
+    color: rgba(255,255,255,0.35) !important;
+    font-size: 9px !important;
+    padding: 2px 6px !important;
+  }
+  .leaflet-control-attribution a { color: rgba(255,255,255,0.5) !important; }
   .leaflet-popup-content-wrapper, .leaflet-popup-tip-container { display: none !important; }
+
+  /* Light theme overrides — much higher contrast */
+  body.theme-light .leaflet-control-zoom a {
+    background: rgba(252,250,247,0.96) !important;
+    color: #1a1814 !important;
+    border-color: rgba(0,0,0,0.18) !important;
+  }
+  body.theme-light .leaflet-control-zoom a:hover {
+    background: rgba(232,228,217,0.98) !important;
+    color: #000 !important;
+  }
+  body.theme-light .leaflet-control-attribution {
+    background: rgba(252,250,247,0.85) !important;
+    color: rgba(26,24,20,0.65) !important;
+  }
+  body.theme-light .leaflet-control-attribution a { color: rgba(26,24,20,0.85) !important; }
 
   @keyframes gps-pulse  { 0%,100%{transform:scale(1);opacity:0.5} 50%{transform:scale(2.5);opacity:0} }
   @keyframes fadeUp     { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
@@ -74,113 +255,176 @@ const GLOBAL_CSS = `
   @keyframes popIn      { 0%{opacity:0;transform:scale(0.95)} 100%{opacity:1;transform:scale(1)} }
   @keyframes slideDown  { from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
   @keyframes pulseRing  { 0%{transform:scale(1);opacity:0.7} 100%{transform:scale(2.4);opacity:0} }
+  @keyframes plantBounce { 0%{transform:scale(1)} 40%{transform:scale(1.18)} 70%{transform:scale(0.93)} 100%{transform:scale(1)} }
+  @keyframes shimmer    { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
 
   textarea { resize: none; }
-  ::-webkit-scrollbar { width: 3px; }
-  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+  body.theme-light ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); }
 
   .yr-tool-btn {
-    width: 48px; height: 48px; border-radius: 6px; cursor: pointer;
-    backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: center;
+    width: 48px; height: 48px; border-radius: 8px; cursor: pointer;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    display: flex; align-items: center; justify-content: center;
     font-size: 17px; transition: all 0.18s; border: 1px solid;
     -webkit-tap-highlight-color: transparent; user-select: none; flex-shrink: 0;
+    -webkit-user-select: none;
   }
-  .yr-tool-btn:active { transform: scale(0.92); }
+  .yr-tool-btn:active { transform: scale(0.90); }
 
   .yr-mood-chip {
-    padding: 7px 14px; border-radius: 20px; cursor: pointer; border: 1.5px solid;
-    font-family: 'Lora', serif; font-size: 12.5px; letter-spacing: 0.1em;
+    padding: 8px 16px; border-radius: 20px; cursor: pointer; border: 1.5px solid;
+    font-family: 'Lora', serif; font-size: 13px; letter-spacing: 0.1em;
     transition: all 0.15s; white-space: nowrap; -webkit-tap-highlight-color: transparent;
+    min-height: 38px; display: inline-flex; align-items: center;
+    font-weight: 500;
   }
 
   .yr-overlay {
-    position: absolute; inset: 0;
-    background: rgba(0,0,0,0.62); backdrop-filter: blur(6px);
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.66); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
     display: flex; align-items: center; justify-content: center;
     animation: fadeIn 0.2s ease; z-index: 200;
+    padding: 16px;
+    overflow-y: auto;
   }
   .yr-modal { animation: fadeUp 0.28s ease forwards; }
 
   .yr-spotlight {
-    position: absolute; border-radius: 50%;
+    position: fixed; border-radius: 50%;
     border: 2px solid rgba(192,132,252,0.85);
     pointer-events: none; z-index: 1001;
     animation: pulseRing 1.5s ease-out infinite;
   }
   .yr-tour-tip {
-    position: absolute;
+    position: fixed;
     background: rgba(11,10,17,0.97);
     border: 1px solid rgba(192,132,252,0.4);
-    border-top: 2px solid rgba(192,132,252,0.8);
-    border-radius: 0 0 6px 6px;
+    border-top: 2px solid rgba(192,132,252,0.85);
+    border-radius: 0 0 8px 8px;
     padding: 14px 16px 12px; width: 240px;
     z-index: 1002; animation: slideDown 0.25s ease;
     box-shadow: 0 12px 40px rgba(0,0,0,0.65);
   }
 
   .yr-search-input {
-    width: 100%; background: rgba(11,10,17,0.92);
-    border: 1px solid rgba(255,255,255,0.1); border-radius: 4px;
-    padding: 10px 36px 10px 14px;
-    color: #ffffff; font-family: 'Lora', serif; font-size: 13px; letter-spacing: 0.06em;
-    outline: none; backdrop-filter: blur(12px); transition: border-color 0.2s;
+    width: 100%; background: rgba(11,10,17,0.94);
+    border: 1px solid rgba(255,255,255,0.18); border-radius: 6px;
+    padding: 11px 36px 11px 14px;
+    color: #ffffff; font-family: 'Lora', serif; letter-spacing: 0.06em;
+    outline: none; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    transition: border-color 0.2s;
+    font-size: 16px; /* Prevents iOS zoom on focus */
   }
-  .yr-search-input::placeholder { color: rgba(232,228,217,0.35); font-style: italic; }
-  .yr-search-input:focus { border-color: rgba(192,132,252,0.5); }
+  .yr-search-input::placeholder { color: rgba(232,228,217,0.55); font-style: italic; }
+  .yr-search-input:focus { border-color: rgba(192,132,252,0.65); }
+
   .yr-search-result {
-    padding: 10px 14px; cursor: pointer;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
-    font-family: 'Lora', serif; font-size: 12.5px;
-    color: rgba(232,228,217,0.75); letter-spacing: 0.04em; transition: background 0.12s;
+    padding: 12px 14px; cursor: pointer;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    font-family: 'Lora', serif; font-size: 13.5px;
+    color: rgba(232,228,217,0.92); letter-spacing: 0.04em; transition: background 0.12s;
+    min-height: 44px; display: flex; align-items: center;
   }
-  .yr-search-result:hover { background: rgba(192,132,252,0.1); color: #c084fc; }
+  .yr-search-result:hover,
+  .yr-search-result:active { background: rgba(192,132,252,0.14); color: #c084fc; }
   .yr-search-result:last-child { border-bottom: none; }
+
+  body.theme-light .yr-search-input {
+    background: rgba(252,250,247,0.97);
+    color: #0a0908;
+    border-color: rgba(0,0,0,0.2);
+  }
+  body.theme-light .yr-search-input::placeholder { color: rgba(26,24,20,0.55); }
+  body.theme-light .yr-search-input:focus { border-color: rgba(109,40,217,0.65); }
+  body.theme-light .yr-search-result {
+    background: rgba(252,250,247,0.98);
+    color: #0a0908;
+    border-bottom-color: rgba(0,0,0,0.08);
+  }
+  body.theme-light .yr-search-result:hover { background: rgba(109,40,217,0.1); color: #6d28d9; }
 
   .yr-found-popup {
     position: absolute; pointer-events: none;
     background: rgba(11,10,17,0.97);
-    border: 1px solid rgba(103,232,249,0.4); border-radius: 4px;
+    border: 1px solid rgba(8,145,178,0.55); border-radius: 6px;
     padding: 7px 13px; white-space: nowrap;
     font-family: 'Lora', serif; font-size: 12px;
-    color: #67e8f9; letter-spacing: 0.14em; font-style: italic;
+    color: #22d3ee; letter-spacing: 0.14em; font-style: italic;
     animation: fadeUp 0.3s ease; z-index: 600;
     box-shadow: 0 4px 20px rgba(0,0,0,0.5);
     transform: translate(-50%, calc(-100% - 20px));
+    font-weight: 600;
   }
   .yr-found-popup::after {
     content: ''; position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
     width: 0; height: 0;
     border-left: 6px solid transparent; border-right: 6px solid transparent;
-    border-top: 6px solid rgba(103,232,249,0.4);
+    border-top: 6px solid rgba(8,145,178,0.55);
   }
 
-  .yr-pin-card {
-    position: absolute; z-index: 300;
-    animation: popIn 0.25s ease;
+  .yr-pin-card { position: fixed; z-index: 300; animation: popIn 0.25s ease; }
+
+  /* Safe area insets for notched phones */
+  .yr-safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .yr-safe-top { padding-top: env(safe-area-inset-top, 0px); }
+
+  /* Mobile-specific tweaks */
+  @media screen and (max-width: 768px) {
+    .yr-tool-btn { width: 46px; height: 46px; font-size: 17px; border-radius: 10px; }
+    .leaflet-control-zoom a { width: 46px !important; height: 46px !important; line-height: 46px !important; font-size: 22px !important; border-radius: 10px !important; }
+    .leaflet-left .leaflet-control-zoom { margin-left: 10px !important; }
+    .yr-mood-chip { padding: 9px 16px; font-size: 13.5px; min-height: 40px; }
   }
+
+  /* Very small screens */
+  @media screen and (max-width: 380px) {
+    .yr-tool-btn { width: 44px; height: 44px; }
+    .leaflet-control-zoom a { width: 44px !important; height: 44px !important; line-height: 44px !important; }
+  }
+
+  input, textarea { font-size: 16px !important; } /* iOS no-zoom */
 `;
 
-/* ─── Theme tokens ──────────────────────────────────────────────────────── */
+/* ─── Theme tokens — much higher contrast ──────────────────────────────── */
 function useTheme(isDark) {
   return {
-    panelBg:     isDark ? "rgba(11,10,17,0.97)"    : "rgba(250,248,244,0.97)",
-    panelBorder: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
-    textPrimary: isDark ? "#ffffff"                : "#1a1814",
-    textSec:     isDark ? "rgba(232,228,217,0.72)" : "rgba(26,24,20,0.72)",
-    textMuted:   isDark ? "rgba(232,228,217,0.45)" : "rgba(26,24,20,0.45)",
-    toolBg:      isDark ? "rgba(11,10,17,0.88)"    : "rgba(250,248,244,0.88)",
-    headerGrad:  isDark
-      ? "linear-gradient(to bottom,rgba(10,10,15,0.92) 0%,transparent 100%)"
-      : "linear-gradient(to bottom,rgba(250,248,244,0.92) 0%,transparent 100%)",
-    legendChipBg: isDark ? "rgba(10,10,15,0.65)" : "rgba(250,248,244,0.75)",
+    panelBg:      isDark ? "rgba(11,10,17,0.97)"     : "rgba(253,251,247,0.99)",
+    panelBorder:  isDark ? "rgba(255,255,255,0.12)"  : "rgba(0,0,0,0.16)",
+    textPrimary:  isDark ? "#ffffff"                 : "#0a0908",
+    textSec:      isDark ? "rgba(232,228,217,0.92)"  : "rgba(10,9,8,0.88)",
+    textMuted:    isDark ? "rgba(232,228,217,0.62)"  : "rgba(10,9,8,0.62)",
+    textFaint:    isDark ? "rgba(232,228,217,0.45)"  : "rgba(10,9,8,0.48)",
+    toolBg:       isDark ? "rgba(11,10,17,0.92)"     : "rgba(253,251,247,0.96)",
+    toolBorder:   isDark ? "rgba(255,255,255,0.16)"  : "rgba(0,0,0,0.18)",
+    toolColor:    isDark ? "rgba(232,228,217,0.92)"  : "#0a0908",
+    headerGrad:   isDark
+      ? "linear-gradient(to bottom,rgba(10,10,15,0.95) 0%,rgba(10,10,15,0.5) 60%,transparent 100%)"
+      : "linear-gradient(to bottom,rgba(253,251,247,0.97) 0%,rgba(253,251,247,0.5) 60%,transparent 100%)",
+    legendChipBg: isDark ? "rgba(11,10,17,0.85)"    : "rgba(253,251,247,0.96)",
+    legendChipBorder: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.14)",
+    moods:        getMoods(isDark),
+    isDark,
   };
 }
 
 /* ─── Sub-components ────────────────────────────────────────────────────── */
 
 function Overlay({ zIndex = 200, onClose, children }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // Lock body scroll while overlay is open
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prevOverflow; };
+  }, []);
+
   return (
     <div
+      ref={ref}
       className="yr-overlay"
       style={{ zIndex }}
       onClick={(e) => e.target === e.currentTarget && onClose?.()}
@@ -196,6 +440,7 @@ function ToolBtn({ id, title, onClick, style, children, className = "" }) {
       id={id}
       className={`yr-tool-btn ${className}`}
       title={title}
+      aria-label={title}
       style={style}
       onClick={() => { haptic("light"); onClick?.(); }}
     >
@@ -204,20 +449,25 @@ function ToolBtn({ id, title, onClick, style, children, className = "" }) {
   );
 }
 
-function Toast({ msg }) {
+function Toast({ msg, isDark }) {
   if (!msg) return null;
   return (
     <div style={{
-      position: "absolute", bottom: 26, left: "50%",
-      transform: "translateX(-50%)",
-      background: "rgba(11,10,17,0.94)", backdropFilter: "blur(12px)",
-      border: "1px solid rgba(255,255,255,0.08)", borderRadius: 4,
-      padding: "9px 20px", zIndex: 600,
-      fontFamily: "'Lora',serif", fontSize: 12.5,
-      color: "rgba(232,228,217,0.72)", letterSpacing: "0.14em", fontStyle: "italic",
+      position: "fixed", bottom: "max(26px, env(safe-area-inset-bottom, 26px))",
+      left: "50%", transform: "translateX(-50%)",
+      background: isDark ? "rgba(11,10,17,0.96)" : "rgba(253,251,247,0.98)",
+      backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+      border: `1px solid ${isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.14)"}`,
+      borderRadius: 6,
+      padding: "10px 22px", zIndex: 600,
+      fontFamily: "'Lora',serif", fontSize: 13,
+      color: isDark ? "rgba(232,228,217,0.95)" : "#0a0908",
+      letterSpacing: "0.14em", fontStyle: "italic",
       whiteSpace: "nowrap", pointerEvents: "none",
       animation: "toastIn 0.25s ease",
-      boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+      boxShadow: isDark ? "0 4px 24px rgba(0,0,0,0.5)" : "0 4px 24px rgba(0,0,0,0.18)",
+      maxWidth: "calc(100vw - 40px)",
+      overflow: "hidden", textOverflow: "ellipsis",
     }}>{msg}</div>
   );
 }
@@ -226,23 +476,27 @@ function Toast({ msg }) {
 function WritingModal({ coords, onSave, onCancel, isDark }) {
   const T = useTheme(isDark);
   const [draft, setDraft] = useState({ title: "", body: "", mood: "wonder", customMood: "" });
-  const mood = getMood(draft.mood);
+  const mood = T.moods.find((m) => m.key === draft.mood) ?? T.moods[0];
 
   const valid = draft.title.trim() && draft.body.trim() &&
     (draft.mood !== "other" || draft.customMood.trim());
 
   const handleSave = () => {
     if (!valid) return;
-    haptic("medium");
-    const moodLabel = draft.mood === "other" ? draft.customMood.trim() : mood.label;
-    const moodColor = draft.mood === "other" ? MOODS[6].color : mood.color;
+    haptic("success");
+    playSound("plant");
+    const moodLabel = draft.mood === "other"
+      ? draft.customMood.trim()
+      : mood.label;
     onSave({
       id: Date.now().toString(),
       lat: coords.lat, lng: coords.lng,
       title: draft.title.trim(), body: draft.body.trim(),
       mood: draft.mood, customMood: draft.mood === "other" ? draft.customMood.trim() : "",
-      moodLabel, moodColor,
+      moodLabel,
+      moodColor: mood.color,
       date: new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
+      createdAt: Date.now(),
     });
   };
 
@@ -252,38 +506,38 @@ function WritingModal({ coords, onSave, onCancel, isDark }) {
         className="yr-modal"
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: 480, maxWidth: "94vw",
-          background: T.panelBg, backdropFilter: "blur(20px)",
-          border: `1px solid ${mood.color}22`,
-          borderTop: `2px solid ${mood.color}66`,
-          borderRadius: "0 0 6px 6px",
+          width: 480, maxWidth: "100%",
+          maxHeight: "calc(100dvh - 40px)", overflowY: "auto",
+          background: T.panelBg, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+          border: `1px solid ${mood.color}40`,
+          borderTop: `2px solid ${mood.color}`,
+          borderRadius: "0 0 8px 8px",
           padding: "26px 26px 22px",
-          boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.7)" : "0 24px 64px rgba(0,0,0,0.18)",
+          boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.7)" : "0 24px 64px rgba(0,0,0,0.22)",
         }}
       >
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 400, color: T.textPrimary, letterSpacing: "0.02em", marginBottom: 4 }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 500, color: T.textPrimary, letterSpacing: "0.02em", marginBottom: 4 }}>
           plant a thought here
         </div>
         {coords && (
-          <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, letterSpacing: "0.14em", marginBottom: 20 }}>
+          <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.14em", marginBottom: 20, fontWeight: 500 }}>
             {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
           </div>
         )}
 
-        {/* Mood chips */}
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, letterSpacing: "0.22em", textTransform: "uppercase", marginBottom: 10 }}>mood</div>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.22em", textTransform: "uppercase", marginBottom: 10, fontWeight: 600 }}>mood</div>
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: draft.mood === "other" ? 10 : 18 }}>
-          {MOODS.map((m) => (
+          {T.moods.map((m) => (
             <button
               key={m.key}
               className="yr-mood-chip"
               onClick={() => { haptic("light"); setDraft((d) => ({ ...d, mood: m.key })); }}
               style={{
-                background:  draft.mood === m.key ? `${m.color}18` : "transparent",
-                borderColor: draft.mood === m.key ? `${m.color}99` : T.panelBorder,
-                color:       draft.mood === m.key ? m.color : T.textMuted,
-                fontWeight:  draft.mood === m.key ? 500 : 400,
-                boxShadow:   draft.mood === m.key ? `0 0 10px ${m.color}30` : "none",
+                background:  draft.mood === m.key ? `${m.color}22` : "transparent",
+                borderColor: draft.mood === m.key ? m.color : T.panelBorder,
+                color:       draft.mood === m.key ? m.color : T.textSec,
+                fontWeight:  draft.mood === m.key ? 700 : 500,
+                boxShadow:   draft.mood === m.key ? `0 0 12px ${m.color}50` : "none",
               }}
             >
               {m.label}
@@ -291,7 +545,6 @@ function WritingModal({ coords, onSave, onCancel, isDark }) {
           ))}
         </div>
 
-        {/* Custom mood */}
         {draft.mood === "other" && (
           <input
             autoFocus
@@ -300,18 +553,14 @@ function WritingModal({ coords, onSave, onCancel, isDark }) {
             onChange={(e) => setDraft((d) => ({ ...d, customMood: e.target.value }))}
             style={{
               width: "100%", background: "transparent", border: "none",
-              borderBottom: `1px solid ${MOODS[6].color}55`,
-              padding: "7px 0", marginBottom: 14,
-              color: T.textSec, fontFamily: "'Lora',serif", fontSize: 14,
+              borderBottom: `1px solid ${T.moods[6].color}88`,
+              padding: "9px 0", marginBottom: 14,
+              color: T.textPrimary, fontFamily: "'Lora',serif",
               fontStyle: "italic", outline: "none", letterSpacing: "0.06em",
-              transition: "border-color 0.2s",
             }}
-            onFocus={(e) => e.target.style.borderColor = `${MOODS[6].color}88`}
-            onBlur={(e)  => e.target.style.borderColor = `${MOODS[6].color}55`}
           />
         )}
 
-        {/* Title */}
         <input
           autoFocus={draft.mood !== "other"}
           placeholder="Give this moment a name…"
@@ -319,16 +568,13 @@ function WritingModal({ coords, onSave, onCancel, isDark }) {
           onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
           style={{
             width: "100%", background: "transparent", border: "none",
-            borderBottom: `1px solid ${draft.title ? mood.color + "55" : T.panelBorder}`,
-            padding: "9px 0", marginBottom: 15,
-            color: T.textPrimary, fontFamily: "'Playfair Display',serif", fontSize: 17,
-            outline: "none", letterSpacing: "0.04em", transition: "border-color 0.2s",
+            borderBottom: `1px solid ${draft.title ? mood.color : T.panelBorder}`,
+            padding: "10px 0", marginBottom: 15,
+            color: T.textPrimary, fontFamily: "'Playfair Display',serif",
+            outline: "none", letterSpacing: "0.04em",
           }}
-          onFocus={(e) => e.target.style.borderColor = `${mood.color}55`}
-          onBlur={(e)  => e.target.style.borderColor = draft.title ? `${mood.color}55` : T.panelBorder}
         />
 
-        {/* Body */}
         <textarea
           rows={5}
           placeholder="What do you want to remember about this place?"
@@ -336,15 +582,13 @@ function WritingModal({ coords, onSave, onCancel, isDark }) {
           onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))}
           style={{
             width: "100%",
-            background: isDark ? "rgba(255,255,255,0.025)" : "rgba(0,0,0,0.025)",
-            border: `1px solid ${T.panelBorder}`, borderRadius: 3,
+            background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)",
+            border: `1px solid ${T.panelBorder}`, borderRadius: 6,
             padding: 12, marginBottom: 20,
-            color: T.textSec, fontFamily: "'Lora',serif",
-            fontSize: 14.5, lineHeight: 1.85, fontStyle: "italic",
+            color: T.textPrimary, fontFamily: "'Lora',serif",
+            lineHeight: 1.85, fontStyle: "italic",
             outline: "none", letterSpacing: "0.02em",
           }}
-          onFocus={(e) => e.target.style.borderColor = `${mood.color}44`}
-          onBlur={(e)  => e.target.style.borderColor = T.panelBorder}
         />
 
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
@@ -352,22 +596,24 @@ function WritingModal({ coords, onSave, onCancel, isDark }) {
             onClick={() => { haptic("light"); onCancel(); }}
             style={{
               background: "transparent", border: `1px solid ${T.panelBorder}`,
-              color: T.textMuted, padding: "9px 20px", borderRadius: 3,
+              color: T.textSec, padding: "10px 20px", borderRadius: 6,
               cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.1em",
+              minHeight: 44, fontWeight: 500,
             }}
           >discard</button>
           <button
             onClick={handleSave}
             disabled={!valid}
             style={{
-              background: valid ? `${mood.color}18` : "transparent",
-              border: `1px solid ${valid ? mood.color + "77" : T.panelBorder}`,
-              color: valid ? mood.color : T.textMuted,
-              padding: "9px 24px", borderRadius: 3,
+              background: valid ? `${mood.color}28` : "transparent",
+              border: `1px solid ${valid ? mood.color : T.panelBorder}`,
+              color: valid ? mood.color : T.textFaint,
+              padding: "10px 24px", borderRadius: 6,
               cursor: valid ? "pointer" : "not-allowed",
-              fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.12em", transition: "all 0.2s",
+              fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.12em",
+              minHeight: 44, fontWeight: 700,
             }}
-          >plant it</button>
+          >plant it ✦</button>
         </div>
       </div>
     </Overlay>
@@ -377,45 +623,210 @@ function WritingModal({ coords, onSave, onCancel, isDark }) {
 /* ─── Forget modal ──────────────────────────────────────────────────────── */
 function ForgetModal({ pin, onConfirm, onCancel, isDark }) {
   const T = useTheme(isDark);
-  const moodColor = pin.moodColor || getMood(pin.mood).color;
-  const moodLabel = pin.moodLabel || getMood(pin.mood).label;
+  const moodColor = pin.moodColor || getMoodByKey(pin.mood, isDark).color;
+  const moodLabel = pin.moodLabel || getMoodByKey(pin.mood, isDark).label;
+
+  const handleConfirm = () => {
+    haptic("heavy");
+    playSound("forget");
+    onConfirm();
+  };
+
   return (
     <Overlay zIndex={500} onClose={onCancel}>
       <div className="yr-modal" onClick={(e) => e.stopPropagation()} style={{
-        width: 400, maxWidth: "90vw",
-        background: T.panelBg, backdropFilter: "blur(20px)",
-        border: "1px solid rgba(248,113,113,0.14)",
-        borderTop: "2px solid rgba(248,113,113,0.4)",
-        borderRadius: "0 0 6px 6px",
+        width: 400, maxWidth: "100%",
+        background: T.panelBg, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+        border: "1px solid rgba(220,38,38,0.22)",
+        borderTop: "2px solid rgba(220,38,38,0.6)",
+        borderRadius: "0 0 8px 8px",
         padding: "30px 28px 26px", textAlign: "center",
-        boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.7)" : "0 24px 64px rgba(0,0,0,0.18)",
+        boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.7)" : "0 24px 64px rgba(0,0,0,0.22)",
       }}>
-        <div style={{ fontSize: 30, marginBottom: 16, color: moodColor, filter: `blur(0.5px) drop-shadow(0 0 10px ${moodColor}55)`, opacity: 0.6 }}>◈</div>
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: "rgba(248,113,113,0.6)", letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 12 }}>let go of this memory?</div>
+        <div style={{ fontSize: 32, marginBottom: 16, color: moodColor, filter: `drop-shadow(0 0 12px ${moodColor}66)`, opacity: 0.7 }}>◈</div>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: isDark ? "rgba(252,165,165,0.9)" : "#b91c1c", letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 12, fontWeight: 700 }}>let go of this memory?</div>
         <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 19, fontWeight: 500, color: T.textPrimary, letterSpacing: "0.02em", marginBottom: 5, lineHeight: 1.35 }}>{pin.title}</div>
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: moodColor + "99", letterSpacing: "0.18em", marginBottom: 20 }}>{moodLabel} · {pin.date}</div>
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 14, color: T.textSec, lineHeight: 1.88, fontStyle: "italic", marginBottom: 20, letterSpacing: "0.02em" }}>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 11, color: moodColor, letterSpacing: "0.18em", marginBottom: 20, fontWeight: 600 }}>{moodLabel} · {pin.date}</div>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 14, color: T.textSec, lineHeight: 1.85, fontStyle: "italic", marginBottom: 20 }}>
           Once forgotten, this memory will be gone<br />from this earth — quietly and permanently.
           <br /><span style={{ color: T.textMuted, fontSize: 12.5 }}>There is no way to bring it back.</span>
         </div>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(248,113,113,0.07)", border: "1px solid rgba(248,113,113,0.2)", borderRadius: 3, padding: "8px 16px", marginBottom: 24 }}>
-          <div style={{ width: 5, height: 5, borderRadius: "50%", background: "rgba(248,113,113,0.7)", flexShrink: 0 }} />
-          <span style={{ fontFamily: "'Lora',serif", fontSize: 11.5, color: "rgba(248,113,113,0.75)", letterSpacing: "0.16em" }}>this cannot be undone</span>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(220,38,38,0.09)", border: "1px solid rgba(220,38,38,0.3)", borderRadius: 6, padding: "8px 16px", marginBottom: 24 }}>
+          <div style={{ width: 5, height: 5, borderRadius: "50%", background: isDark ? "rgba(252,165,165,0.85)" : "#b91c1c", flexShrink: 0 }} />
+          <span style={{ fontFamily: "'Lora',serif", fontSize: 11.5, color: isDark ? "rgba(252,165,165,0.95)" : "#b91c1c", letterSpacing: "0.16em", fontWeight: 600 }}>this cannot be undone</span>
         </div>
         <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-          <button
-            onClick={() => { haptic("light"); onCancel(); }}
-            style={{ background: "transparent", border: `1px solid ${T.panelBorder}`, color: T.textSec, padding: "10px 26px", borderRadius: 3, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.14em", transition: "all 0.18s" }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = T.textPrimary; e.currentTarget.style.borderColor = "rgba(255,255,255,0.25)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = T.textSec; e.currentTarget.style.borderColor = T.panelBorder; }}
-          >keep it</button>
-          <button
-            onClick={() => { haptic("heavy"); onConfirm(); }}
-            style={{ background: "rgba(248,113,113,0.09)", border: "1px solid rgba(248,113,113,0.32)", color: "rgba(248,113,113,0.65)", padding: "10px 26px", borderRadius: 3, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.14em", transition: "all 0.18s" }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(248,113,113,0.16)"; e.currentTarget.style.color = "rgba(248,113,113,0.9)"; e.currentTarget.style.borderColor = "rgba(248,113,113,0.55)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(248,113,113,0.09)"; e.currentTarget.style.color = "rgba(248,113,113,0.65)"; e.currentTarget.style.borderColor = "rgba(248,113,113,0.32)"; }}
-          >let it go</button>
+          <button onClick={() => { haptic("light"); onCancel(); }} style={{ background: "transparent", border: `1px solid ${T.panelBorder}`, color: T.textSec, padding: "10px 24px", borderRadius: 6, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.14em", minHeight: 44, fontWeight: 500 }}>keep it</button>
+          <button onClick={handleConfirm} style={{ background: "rgba(220,38,38,0.14)", border: "1px solid rgba(220,38,38,0.5)", color: isDark ? "rgba(252,165,165,1)" : "#b91c1c", padding: "10px 24px", borderRadius: 6, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.14em", minHeight: 44, fontWeight: 700 }}>let it go</button>
         </div>
+      </div>
+    </Overlay>
+  );
+}
+
+/* ─── Export / Import modal ─────────────────────────────────────────────── */
+function ExportImportModal({ pins, onImport, onClose, isDark }) {
+  const T = useTheme(isDark);
+  const [tab, setTab] = useState("export");
+  const [importText, setImportText] = useState("");
+  const [importError, setImportError] = useState("");
+  const [importSuccess, setImportSuccess] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
+  const fileRef = useRef(null);
+
+  const handleExport = () => {
+    haptic("medium");
+    const data = JSON.stringify({
+      app: "yearning",
+      version: 1,
+      exported: new Date().toISOString(),
+      count: pins.length,
+      pins,
+    }, null, 2);
+    const blob = new Blob([data], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `yearning-memories-${new Date().toISOString().split("T")[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleFileImport = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target.result;
+      setImportText(text);
+      try {
+        const parsed = JSON.parse(text);
+        const arr = parsed.pins ?? parsed;
+        if (!Array.isArray(arr)) throw new Error("Invalid format");
+        setPendingCount(arr.length);
+        setImportError("");
+      } catch {
+        setImportError("Invalid file. Please use a Yearning export file.");
+        setPendingCount(0);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImportConfirm = () => {
+    try {
+      const parsed = JSON.parse(importText);
+      const importedPins = parsed.pins ?? parsed;
+      if (!Array.isArray(importedPins)) throw new Error("Invalid format");
+      importedPins.forEach((p) => {
+        if (typeof p.lat !== "number" || typeof p.lng !== "number") throw new Error("Invalid pin data");
+      });
+      haptic("success");
+      playSound("plant");
+      onImport(importedPins);
+      setImportSuccess(true);
+      setTimeout(() => { setImportSuccess(false); onClose(); }, 1500);
+    } catch {
+      setImportError("Invalid file. Please use a Yearning export file.");
+    }
+  };
+
+  const accent = isDark ? "#a855f7" : "#6d28d9";
+
+  return (
+    <Overlay zIndex={300} onClose={onClose}>
+      <div className="yr-modal" onClick={(e) => e.stopPropagation()} style={{
+        width: 440, maxWidth: "100%",
+        maxHeight: "calc(100dvh - 40px)", overflowY: "auto",
+        background: T.panelBg, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+        border: `1px solid ${accent}33`, borderTop: `2px solid ${accent}`,
+        borderRadius: "0 0 8px 8px", padding: "28px 26px 24px",
+        boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.7)" : "0 24px 64px rgba(0,0,0,0.22)",
+        position: "relative",
+      }}>
+        <button onClick={() => { haptic("light"); onClose(); }} style={{ position: "absolute", top: 14, right: 16, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 4 }} aria-label="Close">×</button>
+
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 10, fontWeight: 600 }}>memories</div>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, color: T.textPrimary, marginBottom: 20, fontWeight: 500 }}>export &amp; import</div>
+
+        <div style={{ display: "flex", gap: 0, marginBottom: 24, border: `1px solid ${T.panelBorder}`, borderRadius: 6, overflow: "hidden" }}>
+          {["export", "import"].map((t) => (
+            <button key={t} onClick={() => { haptic("light"); setTab(t); setImportError(""); }} style={{
+              flex: 1, padding: "11px 0", cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 12, letterSpacing: "0.2em", textTransform: "uppercase", transition: "all 0.18s", border: "none",
+              background: tab === t ? `${accent}22` : "transparent",
+              color: tab === t ? accent : T.textSec,
+              fontWeight: tab === t ? 700 : 500,
+              borderBottom: tab === t ? `2px solid ${accent}` : "2px solid transparent",
+            }}>{t}</button>
+          ))}
+        </div>
+
+        {tab === "export" ? (
+          <div>
+            <div style={{ fontFamily: "'Lora',serif", fontSize: 14, color: T.textSec, lineHeight: 1.8, fontStyle: "italic", marginBottom: 20 }}>
+              Download all your memories as a JSON file. You can import this file later to restore your memories, or move them to another device.
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, background: `${accent}10`, border: `1px solid ${accent}30`, borderRadius: 6, padding: "12px 16px", marginBottom: 22 }}>
+              <div style={{ fontSize: 24, color: accent }}>◈</div>
+              <div>
+                <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, color: T.textPrimary, fontWeight: 500 }}>{pins.length} {pins.length === 1 ? "memory" : "memories"}</div>
+                <div style={{ fontFamily: "'Lora',serif", fontSize: 12, color: T.textMuted, fontStyle: "italic" }}>ready to export</div>
+              </div>
+            </div>
+            <button onClick={handleExport} disabled={pins.length === 0} style={{
+              width: "100%", padding: "13px 0", borderRadius: 6,
+              background: pins.length > 0 ? `${accent}22` : "transparent",
+              border: `1px solid ${pins.length > 0 ? accent : T.panelBorder}`,
+              color: pins.length > 0 ? accent : T.textFaint,
+              fontFamily: "'Lora',serif", fontSize: 14, letterSpacing: "0.14em",
+              cursor: pins.length > 0 ? "pointer" : "not-allowed", fontWeight: 700,
+              minHeight: 48,
+            }}>
+              ↓ download memories
+            </button>
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontFamily: "'Lora',serif", fontSize: 14, color: T.textSec, lineHeight: 1.8, fontStyle: "italic", marginBottom: 18 }}>
+              Upload a Yearning export file to restore or merge your memories. Existing memories will be preserved (duplicates skipped).
+            </div>
+
+            <input ref={fileRef} type="file" accept=".json,application/json" onChange={handleFileImport} style={{ display: "none" }} />
+            <button onClick={() => fileRef.current?.click()} style={{
+              width: "100%", padding: "13px 0", borderRadius: 6, marginBottom: 12,
+              background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
+              border: `1px dashed ${T.panelBorder}`,
+              color: T.textSec, fontFamily: "'Lora',serif", fontSize: 13.5, letterSpacing: "0.1em",
+              cursor: "pointer", minHeight: 48, fontWeight: 500,
+            }}>
+              ↑ choose file
+            </button>
+
+            {importText && !importError && !importSuccess && pendingCount > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontFamily: "'Lora',serif", fontSize: 12, color: T.textSec, fontStyle: "italic", marginBottom: 10 }}>
+                  Found <strong style={{ color: accent, fontStyle: "normal" }}>{pendingCount}</strong> {pendingCount === 1 ? "memory" : "memories"} ready to import.
+                </div>
+                <button onClick={handleImportConfirm} style={{
+                  width: "100%", padding: "13px 0", borderRadius: 6,
+                  background: `${accent}22`, border: `1px solid ${accent}`,
+                  color: accent, fontFamily: "'Lora',serif", fontSize: 14, letterSpacing: "0.14em",
+                  cursor: "pointer", fontWeight: 700, minHeight: 48,
+                }}>
+                  ✦ import memories
+                </button>
+              </div>
+            )}
+            {importError && (
+              <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: isDark ? "rgba(252,165,165,0.95)" : "#b91c1c", fontStyle: "italic", marginTop: 8, fontWeight: 500 }}>{importError}</div>
+            )}
+            {importSuccess && (
+              <div style={{ fontFamily: "'Lora',serif", fontSize: 13.5, color: isDark ? "#86efac" : "#15803d", fontStyle: "italic", marginTop: 8, fontWeight: 600 }}>✓ memories imported successfully</div>
+            )}
+          </div>
+        )}
       </div>
     </Overlay>
   );
@@ -424,39 +835,48 @@ function ForgetModal({ pin, onConfirm, onCancel, isDark }) {
 /* ─── Tip Jar ───────────────────────────────────────────────────────────── */
 function TipJarModal({ onClose, isDark }) {
   const T = useTheme(isDark);
+  const goldText = isDark ? "rgba(251,191,36,0.95)" : "#92400e";
+  const goldBorder = isDark ? "rgba(251,191,36,0.45)" : "rgba(146,64,14,0.45)";
+  const goldBg = isDark ? "rgba(180,83,9,0.12)" : "rgba(180,83,9,0.08)";
+
   return (
     <Overlay zIndex={300} onClose={onClose}>
       <div className="yr-modal" onClick={(e) => e.stopPropagation()} style={{
-        width: 360, maxWidth: "88vw", textAlign: "center",
-        background: T.panelBg, backdropFilter: "blur(20px)",
-        border: "1px solid rgba(253,230,138,0.18)", borderTop: "2px solid rgba(253,230,138,0.5)",
-        borderRadius: "0 0 6px 6px", padding: "30px 28px 26px", position: "relative",
-        boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.7)" : "0 24px 64px rgba(0,0,0,0.18)",
+        width: 360, maxWidth: "100%", textAlign: "center",
+        background: T.panelBg, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+        border: `1px solid ${goldBorder}`, borderTop: `2px solid ${goldBorder}`,
+        borderRadius: "0 0 8px 8px", padding: "30px 28px 26px", position: "relative",
+        boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.7)" : "0 24px 64px rgba(0,0,0,0.22)",
       }}>
-        <button onClick={() => { haptic("light"); onClose(); }} style={{ position: "absolute", top: 14, right: 16, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 20, lineHeight: 1 }}>×</button>
-        <div style={{ fontSize: 36, marginBottom: 14, filter: "drop-shadow(0 0 12px rgba(253,230,138,0.45))" }}>☕</div>
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 21, fontWeight: 500, color: T.textPrimary, letterSpacing: "0.03em", marginBottom: 10 }}>help yearning keep memories</div>
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 14, color: T.textSec, lineHeight: 1.82, fontStyle: "italic", marginBottom: 22, letterSpacing: "0.02em" }}>
+        <button onClick={() => { haptic("light"); onClose(); }} style={{ position: "absolute", top: 14, right: 16, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 4 }} aria-label="Close">×</button>
+        <div style={{ fontSize: 36, marginBottom: 14, filter: "drop-shadow(0 0 12px rgba(253,230,138,0.5))" }}>☕</div>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 500, color: T.textPrimary, letterSpacing: "0.03em", marginBottom: 10 }}>help yearning keep memories</div>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 14, color: T.textSec, lineHeight: 1.85, fontStyle: "italic", marginBottom: 22 }}>
           We built yearning to help you hold onto the moments that matter most. And we want to keep it free, always.
         </div>
         <div style={{ display: "flex", gap: 8, justifyContent: "center", marginBottom: 16 }}>
           {[{ l: "☕ $3", s: "a coffee" }, { l: "☕☕ $6", s: "two coffees" }, { l: "✦ $12", s: "you're amazing" }].map((t) => (
             <a key={t.l} href={KOFI_URL} target="_blank" rel="noopener noreferrer" style={{
               flex: 1, textDecoration: "none",
-              background: "rgba(253,230,138,0.07)", border: "1px solid rgba(253,230,138,0.2)",
-              borderRadius: 4, padding: "10px 6px",
+              background: goldBg,
+              border: `1px solid ${goldBorder}`,
+              borderRadius: 6, padding: "11px 6px",
               display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+              minHeight: 56,
             }}>
-              <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: "rgba(253,230,138,0.9)", letterSpacing: "0.06em" }}>{t.l}</div>
-              <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: "rgba(253,230,138,0.5)", letterSpacing: "0.14em", fontStyle: "italic" }}>{t.s}</div>
+              <div style={{ fontFamily: "'Lora',serif", fontSize: 13.5, color: goldText, letterSpacing: "0.06em", fontWeight: 700 }}>{t.l}</div>
+              <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: goldText, opacity: 0.75, letterSpacing: "0.14em", fontStyle: "italic" }}>{t.s}</div>
             </a>
           ))}
         </div>
         <a href={KOFI_URL} target="_blank" rel="noopener noreferrer" style={{
           display: "block", textDecoration: "none",
-          background: "rgba(253,230,138,0.1)", border: "1px solid rgba(253,230,138,0.35)",
-          borderRadius: 4, padding: 11,
-          fontFamily: "'Lora',serif", fontSize: 13.5, color: "rgba(253,230,138,0.85)", letterSpacing: "0.14em",
+          background: goldBg,
+          border: `1px solid ${goldBorder}`,
+          borderRadius: 6, padding: 12,
+          fontFamily: "'Lora',serif", fontSize: 13.5,
+          color: goldText,
+          letterSpacing: "0.14em", fontWeight: 700,
         }}>support yearning on ko-fi →</a>
         <div style={{ marginTop: 14, fontFamily: "'Lora',serif", fontSize: 11, color: T.textMuted, letterSpacing: "0.12em", fontStyle: "italic" }}>
           no account needed · opens in a new tab
@@ -467,80 +887,124 @@ function TipJarModal({ onClose, isDark }) {
 }
 
 /* ─── Help modal ────────────────────────────────────────────────────────── */
-function HelpModal({ onClose, isDark }) {
+function HelpModal({ onClose, isDark, onEnableNotifications, notifPermission }) {
   const T = useTheme(isDark);
+  const cyan = isDark ? "#22d3ee" : "#0e7490";
+  const purple = isDark ? "#c084fc" : "#6d28d9";
+  const green = isDark ? "#86efac" : "#15803d";
+  const gold = isDark ? "rgba(251,191,36,0.95)" : "#92400e";
+
   const tools = [
-    { icon: "◎", col: "#67e8f9",                   label: "Locate Me",      desc: "Flies to your GPS position and shows a live pulse marker." },
-    { icon: "✦", col: "#c084fc",                   label: "Plant Here",     desc: "Plants a pin at your GPS location, or at the map center if location is unavailable." },
-    { icon: "+", col: T.textSec,                   label: "Tap Anywhere",   desc: "Enter placing mode — tap any spot, or long-press for an instant plant." },
-    { icon: "⌂", col: T.textMuted,                 label: "Reset View",     desc: "Flies back to the world view at default zoom." },
-    { icon: "↝", col: T.textMuted,                 label: "Random Memory",  desc: "Jumps to a random memory you've planted." },
-    { icon: "◑", col: "rgba(253,230,138,0.85)",    label: "Light / Dark",   desc: "Toggle between dark and light map themes. All colors adapt." },
-    { icon: "☕", col: "rgba(253,230,138,0.7)",     label: "Support",        desc: "Keep Yearning free with a small tip." },
-    { icon: "i", col: "rgba(103,232,249,0.75)",    label: "Help Center",    desc: "This panel — your guide lives here permanently.", italic: true },
+    { icon: "◎", col: cyan,    label: "Locate Me",      desc: "Flies to your GPS position and shows a live pulse marker." },
+    { icon: "✦", col: purple,  label: "Plant Here",     desc: "Plants a pin at your GPS location, or at the map center if unavailable." },
+    { icon: "+", col: T.textPrimary, label: "Tap Anywhere",   desc: "Enter placing mode — tap any spot, or long-press for an instant plant." },
+    { icon: "⌂", col: T.textSec,     label: "Reset View",     desc: "Flies back to the world view at default zoom." },
+    { icon: "↝", col: T.textSec,     label: "Random Memory",  desc: "Jumps to a random memory you've planted." },
+    { icon: "◑", col: gold,    label: "Light / Dark",   desc: "Toggle between dark and light map themes." },
+    { icon: "⬇", col: T.textSec,     label: "Export / Import",desc: "Back up your memories to a file, or restore from a previous export." },
+    { icon: "☕", col: gold,    label: "Support",        desc: "Keep Yearning free with a small tip." },
+    { icon: "i", col: cyan,    label: "Help Center",    desc: "This panel — your guide lives here permanently.", italic: true },
   ];
   const Tag = ({ c, children }) => (
     <span style={{
-      background: c === "cyan" ? "rgba(103,232,249,0.12)" : "rgba(134,239,172,0.12)",
-      color: c === "cyan" ? "rgba(103,232,249,0.9)" : "rgba(134,239,172,0.9)",
-      padding: "1px 7px", borderRadius: 2, fontSize: 11.5,
+      background: c === "cyan" ? (isDark ? "rgba(8,145,178,0.18)" : "rgba(8,145,178,0.12)") : (isDark ? "rgba(22,163,74,0.16)" : "rgba(22,163,74,0.1)"),
+      color: c === "cyan" ? cyan : green,
+      padding: "2px 8px", borderRadius: 4, fontSize: 11.5,
       fontStyle: "normal", fontFamily: "'Lora',serif", letterSpacing: "0.04em",
+      fontWeight: 600,
     }}>{children}</span>
   );
+
   return (
     <Overlay zIndex={300} onClose={onClose}>
       <div className="yr-modal" onClick={(e) => e.stopPropagation()} style={{
-        width: 440, maxWidth: "94vw",
-        background: T.panelBg, backdropFilter: "blur(20px)",
-        border: "1px solid rgba(103,232,249,0.15)", borderTop: "2px solid rgba(103,232,249,0.5)",
-        borderRadius: "0 0 6px 6px", padding: "30px 28px 26px", position: "relative",
-        maxHeight: "90vh", overflowY: "auto",
-        boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.7)" : "0 24px 64px rgba(0,0,0,0.18)",
+        width: 460, maxWidth: "100%",
+        background: T.panelBg, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+        border: `1px solid ${cyan}33`, borderTop: `2px solid ${cyan}`,
+        borderRadius: "0 0 8px 8px", padding: "30px 28px 26px", position: "relative",
+        maxHeight: "calc(100dvh - 40px)", overflowY: "auto",
+        boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.7)" : "0 24px 64px rgba(0,0,0,0.22)",
       }}>
-        <button onClick={() => { haptic("light"); onClose(); }} style={{ position: "absolute", top: 14, right: 16, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 20, lineHeight: 1 }}>×</button>
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 14 }}>help center</div>
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 21, fontWeight: 500, color: T.textPrimary, marginBottom: 22 }}>how to use yearning</div>
+        <button onClick={() => { haptic("light"); onClose(); }} style={{ position: "absolute", top: 14, right: 16, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 4 }} aria-label="Close">×</button>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 14, fontWeight: 600 }}>help center</div>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 500, color: T.textPrimary, marginBottom: 22 }}>how to use yearning</div>
 
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, letterSpacing: "0.26em", textTransform: "uppercase", marginBottom: 14 }}>your tools</div>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.26em", textTransform: "uppercase", marginBottom: 14, fontWeight: 600 }}>your tools</div>
         {tools.map(({ icon, col, label, desc, italic }) => (
           <div key={label} style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 14 }}>
             <div style={{
-              width: 38, height: 38, borderRadius: 4, flexShrink: 0,
+              width: 38, height: 38, borderRadius: 6, flexShrink: 0,
               display: "flex", alignItems: "center", justifyContent: "center",
-              background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)",
+              background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
               border: `1px solid ${T.panelBorder}`,
-              color: col, fontSize: italic ? 16 : 15,
+              color: col, fontSize: italic ? 16 : 15, fontWeight: 600,
               fontFamily: italic ? "'Lora',serif" : "inherit",
               fontStyle: italic ? "italic" : "normal",
             }}>{icon}</div>
             <div style={{ paddingTop: 2 }}>
-              <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, letterSpacing: "0.22em", textTransform: "uppercase", marginBottom: 3 }}>{label}</div>
+              <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textPrimary, letterSpacing: "0.22em", textTransform: "uppercase", marginBottom: 3, fontWeight: 700 }}>{label}</div>
               <div style={{ fontFamily: "'Lora',serif", fontStyle: "italic", fontSize: 13.5, color: T.textSec, lineHeight: 1.7 }}>{desc}</div>
             </div>
           </div>
         ))}
 
         <div style={{ borderTop: `1px solid ${T.panelBorder}`, margin: "16px 0 14px" }} />
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, letterSpacing: "0.26em", textTransform: "uppercase", marginBottom: 11 }}>moods</div>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.26em", textTransform: "uppercase", marginBottom: 11, fontWeight: 600 }}>moods</div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 4 }}>
-          {MOODS.map((m) => (
+          {T.moods.map((m) => (
             <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: m.color, boxShadow: `0 0 5px ${m.color}88` }} />
-              <span style={{ fontFamily: "'Lora',serif", fontSize: 12.5, color: T.textSec }}>{m.label}</span>
+              <div style={{ width: 9, height: 9, borderRadius: "50%", background: m.color, boxShadow: `0 0 6px ${m.color}88` }} />
+              <span style={{ fontFamily: "'Lora',serif", fontSize: 12.5, color: T.textPrimary, fontWeight: 600 }}>{m.label}</span>
             </div>
           ))}
         </div>
 
-        <div style={{ borderTop: `1px solid ${T.panelBorder}`, margin: "20px 0 16px" }} />
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, letterSpacing: "0.26em", textTransform: "uppercase", marginBottom: 6 }}>add to homescreen</div>
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: T.textSec, fontStyle: "italic", marginBottom: 14, lineHeight: 1.65 }}>Keep yearning just a tap away — it works like a native app.</div>
+        <div style={{ borderTop: `1px solid ${T.panelBorder}`, margin: "20px 0 14px" }} />
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.26em", textTransform: "uppercase", marginBottom: 8, fontWeight: 600 }}>location reminders</div>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: T.textSec, fontStyle: "italic", marginBottom: 12, lineHeight: 1.7 }}>
+         When enabled, Yearning softly nudges you when you arrive somewhere new or somewhere you have not planted a memory yet.
+        </div>
+        <button
+          onClick={onEnableNotifications}
+          disabled={notifPermission === "granted" || notifPermission === "denied"}
+          style={{
+            width: "100%", padding: "11px 0", borderRadius: 6, marginBottom: 14,
+            background: notifPermission === "granted"
+              ? (isDark ? "rgba(22,163,74,0.16)" : "rgba(22,163,74,0.1)")
+              : notifPermission === "denied"
+              ? "transparent"
+              : `${cyan}22`,
+            border: `1px solid ${
+              notifPermission === "granted"
+                ? (isDark ? "rgba(134,239,172,0.5)" : "rgba(22,163,74,0.5)")
+                : notifPermission === "denied"
+                ? T.panelBorder
+                : cyan
+            }`,
+            color: notifPermission === "granted"
+              ? green
+              : notifPermission === "denied"
+              ? T.textFaint
+              : cyan,
+            fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.14em", fontWeight: 700,
+            cursor: notifPermission === "default" ? "pointer" : "default",
+            minHeight: 44,
+          }}
+        >
+          {notifPermission === "granted" ? "✓ notifications enabled" :
+           notifPermission === "denied"  ? "notifications blocked in browser" :
+           "✦ enable location reminders"}
+        </button>
 
+        <div style={{ borderTop: `1px solid ${T.panelBorder}`, margin: "6px 0 16px" }} />
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.26em", textTransform: "uppercase", marginBottom: 6, fontWeight: 600 }}>add to homescreen</div>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: T.textSec, fontStyle: "italic", marginBottom: 14, lineHeight: 1.65 }}>Keep yearning just a tap away — it works like a native app.</div>
         {[
-          { bg: "rgba(103,232,249,", label: "iPhone · Safari", col: "cyan", steps: ["Tap the", "Share", "button at the bottom", "Scroll and tap", "Add to Home Screen", "", "Tap", "Add", "in the top right corner"] },
-          { bg: "rgba(134,239,172,", label: "Android · Chrome", col: "green", steps: ["Tap the", "⋮", "menu in the top right", "Tap", "Add to Home screen", "", "Tap", "Add", "to confirm"] },
+          { bg: isDark ? "rgba(34,211,238," : "rgba(14,116,144,", label: "iPhone · Safari", col: "cyan", steps: ["Tap the", "Share", "button at the bottom", "Scroll and tap", "Add to Home Screen", "", "Tap", "Add", "in the top right corner"] },
+          { bg: isDark ? "rgba(134,239,172," : "rgba(22,163,74,", label: "Android · Chrome", col: "green", steps: ["Tap the", "⋮", "menu in the top right", "Tap", "Add to Home screen", "", "Tap", "Add", "to confirm"] },
         ].map(({ bg, label, col, steps }) => (
-          <div key={label} style={{ background: `${bg}0.05)`, border: `1px solid ${bg}0.15)`, borderLeft: `2px solid ${bg}0.5)`, borderRadius: "0 4px 4px 0", padding: "13px 15px", marginBottom: 10 }}>
-            <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: `${bg}0.8)`, letterSpacing: "0.24em", textTransform: "uppercase", marginBottom: 9 }}>{label}</div>
+          <div key={label} style={{ background: `${bg}0.07)`, border: `1px solid ${bg}0.25)`, borderLeft: `3px solid ${bg}0.65)`, borderRadius: "0 6px 6px 0", padding: "14px 16px", marginBottom: 10 }}>
+            <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: `${bg}0.95)`, letterSpacing: "0.24em", textTransform: "uppercase", marginBottom: 9, fontWeight: 700 }}>{label}</div>
             {[0, 1, 2].map((i) => (
               <div key={i} style={{ fontFamily: "'Lora',serif", fontSize: 13, color: T.textSec, lineHeight: 1.7, fontStyle: "italic", marginBottom: i < 2 ? 5 : 0 }}>
                 {i + 1}. {steps[i * 3]} <Tag c={col}>{steps[i * 3 + 1]}</Tag> {steps[i * 3 + 2]}
@@ -560,43 +1024,86 @@ function HelpModal({ onClose, isDark }) {
 function WelcomeModal({ onStartTour, onSkip }) {
   return (
     <div style={{
-      position: "absolute", inset: 0,
-      background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)",
+      position: "fixed", inset: 0,
+      background: "rgba(0,0,0,0.9)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
       zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center",
-      animation: "fadeIn 0.35s ease",
+      animation: "fadeIn 0.35s ease", padding: 16, overflowY: "auto",
     }}>
       <div className="yr-modal" style={{
-        width: 450, maxWidth: "94vw",
-        background: "rgba(11,10,17,0.97)",
-        border: "1px solid rgba(192,132,252,0.14)", borderTop: "2px solid rgba(192,132,252,0.55)",
-        borderRadius: "0 0 6px 6px", padding: "38px 34px 30px",
+        width: 450, maxWidth: "100%",
+        background: "rgba(11,10,17,0.98)",
+        border: "1px solid rgba(168,85,247,0.25)", borderTop: "2px solid rgba(168,85,247,0.85)",
+        borderRadius: "0 0 8px 8px", padding: "38px 32px 30px",
         boxShadow: "0 32px 80px rgba(0,0,0,0.7)",
       }}>
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: "rgba(232,228,217,0.45)", letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 16 }}>welcome</div>
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 28, fontWeight: 500, color: "#ffffff", letterSpacing: "0.03em", lineHeight: 1, marginBottom: 8 }}>Welcome to Yearning</div>
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: "rgba(232,228,217,0.45)", fontStyle: "italic", letterSpacing: "0.1em", marginBottom: 24 }}>leave a part of yourself somewhere</div>
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 14.5, color: "rgba(232,228,217,0.72)", lineHeight: 1.88, fontStyle: "italic", letterSpacing: "0.02em" }}>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: "rgba(232,228,217,0.6)", letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 16, fontWeight: 600 }}>welcome</div>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 30, fontWeight: 500, color: "#ffffff", letterSpacing: "0.03em", lineHeight: 1, marginBottom: 8 }}>Welcome to Yearning</div>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 13.5, color: "rgba(232,228,217,0.7)", fontStyle: "italic", letterSpacing: "0.1em", marginBottom: 24 }}>leave a part of yourself somewhere</div>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 14.5, color: "rgba(232,228,217,0.92)", lineHeight: 1.85, fontStyle: "italic" }}>
           A quiet place to plant your thoughts, feelings, and memories exactly where they happened — anywhere on earth.
         </div>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 14, background: "rgba(103,232,249,0.05)", border: "1px solid rgba(103,232,249,0.15)", borderLeft: "2px solid rgba(103,232,249,0.55)", padding: "14px 16px", margin: "24px 0 26px" }}>
-          <div style={{ fontSize: 15, color: "rgba(103,232,249,0.8)", marginTop: 1, flexShrink: 0 }}>◉</div>
-          <div style={{ fontFamily: "'Lora',serif", fontSize: 13.5, color: "rgba(232,228,217,0.72)", lineHeight: 1.8, letterSpacing: "0.02em" }}>
-            <span style={{ color: "#ffffff", fontStyle: "italic" }}>Your memories never leave your device.</span><br />
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 14, background: "rgba(8,145,178,0.1)", border: "1px solid rgba(8,145,178,0.3)", borderLeft: "3px solid rgba(8,145,178,0.75)", padding: "14px 16px", margin: "24px 0 26px", borderRadius: "0 6px 6px 0" }}>
+          <div style={{ fontSize: 16, color: "#22d3ee", marginTop: 1, flexShrink: 0 }}>◉</div>
+          <div style={{ fontFamily: "'Lora',serif", fontSize: 13.5, color: "rgba(232,228,217,0.92)", lineHeight: 1.8 }}>
+            <span style={{ color: "#ffffff", fontStyle: "italic", fontWeight: 600 }}>Your memories never leave your device.</span><br />
             Everything is stored locally — no servers, no accounts, no tracking.
           </div>
         </div>
-        <div style={{ display: "flex", gap: 10, justifyContent: "space-between", alignItems: "center" }}>
-          <button
-            onClick={() => { haptic("light"); onSkip(); }}
-            style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(232,228,217,0.45)", fontFamily: "'Lora',serif", fontSize: 12, letterSpacing: "0.16em", cursor: "pointer", padding: "10px 20px", borderRadius: 3, transition: "all 0.15s" }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "rgba(232,228,217,0.7)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.22)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "rgba(232,228,217,0.45)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; }}
-          >skip tour</button>
-          <button
-            onClick={() => { haptic("medium"); onStartTour(); }}
-            style={{ background: "rgba(192,132,252,0.12)", border: "1px solid rgba(192,132,252,0.5)", color: "rgba(192,132,252,0.92)", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.2em", padding: "11px 30px", borderRadius: 3, cursor: "pointer", transition: "all 0.18s" }}
-          >show me around →</button>
+        <div style={{ display: "flex", gap: 10, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
+          <button onClick={() => { haptic("light"); onSkip(); }} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.16)", color: "rgba(232,228,217,0.7)", fontFamily: "'Lora',serif", fontSize: 12, letterSpacing: "0.16em", cursor: "pointer", padding: "11px 20px", borderRadius: 6, minHeight: 44, fontWeight: 500 }}>skip tour</button>
+          <button onClick={() => { haptic("medium"); onStartTour(); }} style={{ background: "rgba(168,85,247,0.18)", border: "1px solid rgba(168,85,247,0.7)", color: "rgba(216,180,254,1)", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.2em", padding: "12px 28px", borderRadius: 6, cursor: "pointer", minHeight: 44, fontWeight: 700 }}>show me around →</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── First-plant nudge ─────────────────────────────────────────────────── */
+function FirstPlantNudge({ isDark, onPlantHere, onPlantWhere, onDismiss, hasLocation }) {
+  const T = useTheme(isDark);
+  const purple = isDark ? "#a855f7" : "#6d28d9";
+
+  return (
+    <div style={{
+      position: "fixed", bottom: "max(60px, calc(env(safe-area-inset-bottom, 0px) + 60px))",
+      left: "50%", transform: "translateX(-50%)",
+      background: T.panelBg, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+      border: `1px solid ${purple}50`,
+      borderLeft: `3px solid ${purple}`,
+      borderRadius: "0 8px 8px 0",
+      padding: "16px 18px 14px", zIndex: 120,
+      animation: "fadeUp 0.4s ease",
+      width: "min(360px, calc(100vw - 28px))",
+      boxShadow: isDark ? "0 8px 32px rgba(0,0,0,0.55)" : "0 8px 32px rgba(0,0,0,0.18)",
+    }}>
+      <button onClick={onDismiss} style={{ position: "absolute", top: 8, right: 10, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4 }} aria-label="Dismiss">×</button>
+      <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, color: T.textPrimary, marginBottom: 6, paddingRight: 20, fontWeight: 500 }}>
+        you're somewhere right now ✦
+      </div>
+      <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: T.textSec, fontStyle: "italic", lineHeight: 1.7, marginBottom: 14 }}>
+        This moment will pass. Plant a thought here so you can come back to it.
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button onClick={onDismiss} style={{
+          background: "transparent", border: `1px solid ${T.panelBorder}`,
+          color: T.textSec, padding: "9px 14px", borderRadius: 6, cursor: "pointer",
+          fontFamily: "'Lora',serif", fontSize: 12, letterSpacing: "0.1em", minHeight: 38, fontWeight: 500,
+        }}>not now</button>
+        {hasLocation ? (
+          <button onClick={onPlantHere} style={{
+            background: `${purple}28`, border: `1px solid ${purple}`,
+            color: purple, padding: "9px 18px", borderRadius: 6,
+            cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 12.5, letterSpacing: "0.12em",
+            minHeight: 38, fontWeight: 700, flex: 1,
+          }}>plant where I am ✦</button>
+        ) : (
+          <button onClick={onPlantWhere} style={{
+            background: `${purple}28`, border: `1px solid ${purple}`,
+            color: purple, padding: "9px 18px", borderRadius: 6,
+            cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 12.5, letterSpacing: "0.12em",
+            minHeight: 38, fontWeight: 700, flex: 1,
+          }}>plant first thought →</button>
+        )}
       </div>
     </div>
   );
@@ -619,9 +1126,10 @@ function TourOverlay({ step, total, onNext, onPrev, onSkip }) {
       const tipW = 240;
       const cx = r.left + r.width / 2;
       const cy = r.top + r.height / 2;
-      const rad = Math.max(r.width, r.height) / 2 + 10;
+      const rad = Math.max(r.width, r.height) / 2 + 12;
       let tipTop = cy + rad + 14;
       if (tipTop + tipH > window.innerHeight - 20) tipTop = cy - rad - tipH - 14;
+      if (tipTop < 20) tipTop = 20;
       let tipLeft = cx - tipW / 2;
       tipLeft = Math.max(14, Math.min(tipLeft, window.innerWidth - tipW - 14));
       setTipPos({ top: tipTop, left: tipLeft });
@@ -631,27 +1139,24 @@ function TourOverlay({ step, total, onNext, onPrev, onSkip }) {
   if (!rect) return null;
   const cx = rect.left + rect.width / 2;
   const cy = rect.top + rect.height / 2;
-  const rad = Math.max(rect.width, rect.height) / 2 + 10;
+  const rad = Math.max(rect.width, rect.height) / 2 + 12;
   const { title, desc } = TOUR_STEPS[step];
 
   return (
     <>
-      {/* Dim backdrop */}
-      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 999, pointerEvents: "none", animation: "fadeIn 0.2s ease" }} />
-      {/* Spotlight ring */}
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 999, pointerEvents: "none", animation: "fadeIn 0.2s ease" }} />
       <div className="yr-spotlight" style={{ left: cx - rad, top: cy - rad, width: rad * 2, height: rad * 2 }} />
-      {/* Tooltip */}
       <div ref={tipRef} className="yr-tour-tip" style={{ top: tipPos.top, left: tipPos.left }}>
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: "rgba(192,132,252,0.7)", letterSpacing: "0.24em", textTransform: "uppercase", marginBottom: 6 }}>{step + 1} of {total}</div>
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, color: "#ffffff", marginBottom: 8, lineHeight: 1.3 }}>{title}</div>
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: "rgba(232,228,217,0.7)", lineHeight: 1.7, fontStyle: "italic", marginBottom: 14 }}>{desc}</div>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: "rgba(216,180,254,0.9)", letterSpacing: "0.24em", textTransform: "uppercase", marginBottom: 6, fontWeight: 600 }}>{step + 1} of {total}</div>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, color: "#ffffff", marginBottom: 8, lineHeight: 1.3, fontWeight: 500 }}>{title}</div>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: "rgba(232,228,217,0.92)", lineHeight: 1.7, fontStyle: "italic", marginBottom: 14 }}>{desc}</div>
         <div style={{ display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center" }}>
-          <button onClick={() => { haptic("light"); onSkip(); }} style={{ background: "transparent", border: "none", color: "rgba(232,228,217,0.4)", fontFamily: "'Lora',serif", fontSize: 11, letterSpacing: "0.14em", cursor: "pointer", padding: 0 }}>skip</button>
+          <button onClick={() => { haptic("light"); onSkip(); }} style={{ background: "transparent", border: "none", color: "rgba(232,228,217,0.6)", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.14em", cursor: "pointer", padding: 4, fontWeight: 500 }}>skip</button>
           <div style={{ display: "flex", gap: 6 }}>
             {step > 0 && (
-              <button onClick={() => { haptic("light"); onPrev(); }} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.12)", color: "rgba(232,228,217,0.5)", fontFamily: "'Lora',serif", fontSize: 11, letterSpacing: "0.14em", cursor: "pointer", padding: "6px 14px", borderRadius: 3 }}>← back</button>
+              <button onClick={() => { haptic("light"); onPrev(); }} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.18)", color: "rgba(232,228,217,0.85)", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.14em", cursor: "pointer", padding: "7px 14px", borderRadius: 5, minHeight: 36, fontWeight: 500 }}>← back</button>
             )}
-            <button onClick={() => { haptic("medium"); onNext(); }} style={{ background: "rgba(192,132,252,0.12)", border: "1px solid rgba(192,132,252,0.5)", color: "rgba(192,132,252,0.92)", fontFamily: "'Lora',serif", fontSize: 11, letterSpacing: "0.18em", cursor: "pointer", padding: "6px 16px", borderRadius: 3 }}>
+            <button onClick={() => { haptic("medium"); onNext(); }} style={{ background: "rgba(168,85,247,0.2)", border: "1px solid rgba(168,85,247,0.7)", color: "rgba(216,180,254,1)", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.18em", cursor: "pointer", padding: "7px 16px", borderRadius: 5, minHeight: 36, fontWeight: 700 }}>
               {step === total - 1 ? "begin ✦" : "next →"}
             </button>
           </div>
@@ -663,25 +1168,24 @@ function TourOverlay({ step, total, onNext, onPrev, onSkip }) {
 
 /* ─── Search box ────────────────────────────────────────────────────────── */
 function SearchBox({ isDark }) {
-  const T = useTheme(isDark);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
   const timerRef = useRef(null);
-  const mapRef = useRef(null);
-
-  // Get map ref from window (set during Yearning init)
-  useEffect(() => { mapRef.current = window.__yearningMap; }, []);
 
   useEffect(() => {
-    if (!query.trim()) { setResults([]); return; }
+    if (!query.trim()) { setResults([]); setLoading(false); return; }
     if (timerRef.current) clearTimeout(timerRef.current);
+    setLoading(true);
     timerRef.current = setTimeout(async () => {
       try {
         const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5`, { headers: { "Accept-Language": "en" } });
         const data = await res.json();
         setResults(data);
       } catch { setResults([]); }
+      finally { setLoading(false); }
     }, 400);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [query]);
 
   const flyTo = (r) => {
@@ -693,23 +1197,37 @@ function SearchBox({ isDark }) {
   };
 
   return (
-    <div id="search-container" style={{ position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)", width: "min(360px, calc(100vw - 120px))", zIndex: 110 }}>
+    <div id="search-container" style={{
+      position: "fixed", top: "max(14px, calc(env(safe-area-inset-top, 0px) + 14px))",
+      left: "50%", transform: "translateX(-50%)",
+      width: "min(360px, calc(100vw - 120px))", zIndex: 110,
+    }}>
       <div style={{ position: "relative" }}>
         <input
           className="yr-search-input"
           type="text"
           placeholder="search a place…"
           autoComplete="off"
+          inputMode="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Escape") { setQuery(""); setResults([]); e.target.blur(); } }}
         />
         {query && (
-          <button onClick={() => { haptic("light"); setQuery(""); setResults([]); }} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "rgba(232,228,217,0.4)", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 2 }}>×</button>
+          <button onClick={() => { haptic("light"); setQuery(""); setResults([]); }} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: isDark ? "rgba(232,228,217,0.7)" : "rgba(10,9,8,0.7)", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4, minWidth: 30, minHeight: 30, display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="Clear search">×</button>
         )}
       </div>
-      {results.length > 0 && (
-        <div style={{ background: "rgba(11,10,17,0.97)", border: "1px solid rgba(255,255,255,0.1)", borderTop: "none", borderRadius: "0 0 4px 4px", overflow: "hidden", maxHeight: 200, overflowY: "auto" }}>
+      {(results.length > 0 || loading) && (
+        <div style={{
+          background: isDark ? "rgba(11,10,17,0.97)" : "rgba(252,250,247,0.98)",
+          border: `1px solid ${isDark ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.16)"}`,
+          borderTop: "none", borderRadius: "0 0 6px 6px",
+          overflow: "hidden", maxHeight: 240, overflowY: "auto",
+          backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+        }}>
+          {loading && results.length === 0 && (
+            <div style={{ padding: "12px 14px", fontFamily: "'Lora',serif", fontSize: 12.5, color: isDark ? "rgba(232,228,217,0.6)" : "rgba(10,9,8,0.6)", fontStyle: "italic" }}>searching…</div>
+          )}
           {results.map((r, i) => (
             <div key={i} className="yr-search-result" onClick={() => flyTo(r)}>
               {r.display_name.split(",").slice(0, 3).join(", ")}
@@ -721,7 +1239,7 @@ function SearchBox({ isDark }) {
   );
 }
 
-/* ─── Found-you popup (map-anchored) ────────────────────────────────────── */
+/* ─── Found-you popup ───────────────────────────────────────────────────── */
 function FoundPopup({ lat, lng, mapInstance }) {
   const [pos, setPos] = useState(null);
 
@@ -744,21 +1262,25 @@ function FoundPopup({ lat, lng, mapInstance }) {
   );
 }
 
-/* ─── Pin card (map-anchored below pin) ─────────────────────────────────── */
+/* ─── Pin card ──────────────────────────────────────────────────────────── */
 function PinCard({ pin, mapInstance, isDark, onClose, onForget }) {
   const T = useTheme(isDark);
   const [pos, setPos] = useState({ left: 0, top: 0, width: 320 });
-  const moodColor = pin.moodColor || getMood(pin.mood).color;
-  const moodLabel = pin.moodLabel || getMood(pin.mood).label;
+  const moodColor = pin.moodColor || getMoodByKey(pin.mood, isDark).color;
+  const moodLabel = pin.moodLabel || getMoodByKey(pin.mood, isDark).label;
 
   useEffect(() => {
     if (!mapInstance) return;
     const update = () => {
       const pt = mapInstance.latLngToContainerPoint([pin.lat, pin.lng]);
-      const cardW = Math.min(320, window.innerWidth - 28);
+      const cardW = Math.min(340, window.innerWidth - 28);
       let left = pt.x - cardW / 2;
       left = Math.max(14, Math.min(left, window.innerWidth - cardW - 14));
-      const top = pt.y + 44;
+      const cardEstHeight = 240;
+      let top = pt.y + 44;
+      if (top + cardEstHeight > window.innerHeight - 20) {
+        top = Math.max(14, pt.y - cardEstHeight - 24);
+      }
       setPos({ left, top, width: cardW });
     };
     update();
@@ -769,36 +1291,34 @@ function PinCard({ pin, mapInstance, isDark, onClose, onForget }) {
   return (
     <div className="yr-pin-card" style={{ left: pos.left, top: pos.top, width: pos.width }}>
       <div style={{
-        background: T.panelBg, backdropFilter: "blur(18px)",
-        border: `1px solid ${moodColor}22`, borderLeft: `3px solid ${moodColor}`,
-        borderRadius: "0 4px 4px 0",
-        padding: "18px 16px 13px",
-        boxShadow: isDark ? "0 8px 32px rgba(0,0,0,0.5)" : "0 8px 32px rgba(0,0,0,0.12)",
-        maxHeight: "48vh", overflowY: "auto",
+        background: T.panelBg, backdropFilter: "blur(18px)", WebkitBackdropFilter: "blur(18px)",
+        border: `1px solid ${moodColor}40`, borderLeft: `4px solid ${moodColor}`,
+        borderRadius: "0 8px 8px 0",
+        padding: "18px 18px 14px",
+        boxShadow: isDark ? "0 8px 32px rgba(0,0,0,0.55)" : "0 8px 32px rgba(0,0,0,0.18)",
+        maxHeight: "min(46vh, 360px)", overflowY: "auto",
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
           <div style={{ flex: 1, paddingRight: 10 }}>
-            <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: moodColor, letterSpacing: "0.24em", textTransform: "uppercase", marginBottom: 5 }}>
+            <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: moodColor, letterSpacing: "0.24em", textTransform: "uppercase", marginBottom: 5, fontWeight: 700 }}>
               {moodLabel} · {pin.date}
             </div>
             <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 17, fontWeight: 500, color: T.textPrimary, lineHeight: 1.3 }}>
               {pin.title}
             </div>
           </div>
-          <button onClick={() => { haptic("light"); onClose(); }} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 20, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
+          <button onClick={() => { haptic("light"); onClose(); }} style={{ background: "transparent", border: "none", color: T.textSec, cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 0, flexShrink: 0, minWidth: 32, minHeight: 32, display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="Close">×</button>
         </div>
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 14, color: T.textSec, lineHeight: 1.8, fontStyle: "italic" }}>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 14, color: T.textSec, lineHeight: 1.85, fontStyle: "italic" }}>
           {pin.body}
         </div>
         <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.panelBorder}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontFamily: "'Lora',serif", fontSize: 9.5, color: T.textMuted, letterSpacing: "0.06em" }}>
+          <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, letterSpacing: "0.06em", fontWeight: 500 }}>
             {pin.lat.toFixed(4)}, {pin.lng.toFixed(4)}
           </div>
           <button
             onClick={() => { haptic("medium"); onForget(pin.id); }}
-            style={{ background: "transparent", border: "none", color: "rgba(248,113,113,0.45)", cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11, letterSpacing: "0.1em", transition: "color 0.2s" }}
-            onMouseEnter={(e) => e.currentTarget.style.color = "rgba(248,113,113,0.75)"}
-            onMouseLeave={(e) => e.currentTarget.style.color = "rgba(248,113,113,0.45)"}
+            style={{ background: "transparent", border: "none", color: isDark ? "rgba(252,165,165,0.75)" : "rgba(185,28,28,0.85)", cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.1em", padding: "6px 0", minHeight: 32, fontWeight: 600 }}
           >forget this</button>
         </div>
       </div>
@@ -808,48 +1328,166 @@ function PinCard({ pin, mapInstance, isDark, onClose, onForget }) {
 
 /* ─── Main component ────────────────────────────────────────────────────── */
 export default function Yearning() {
-  const mapContainerRef = useRef(null);
-  const mapRef          = useRef(null);
-  const tileLayerRef    = useRef(null);
-  const markersRef      = useRef({});
-  const userMarkerRef   = useRef(null);
-  const leafletRef      = useRef(null);
-  const longPressTimer  = useRef(null);
-  const toastTimer      = useRef(null);
+  const mapContainerRef  = useRef(null);
+  const mapRef           = useRef(null);
+  const tileLayerRef     = useRef(null);
+  const markersRef       = useRef({});
+  const userMarkerRef    = useRef(null);
+  const leafletRef       = useRef(null);
+  const longPressTimer   = useRef(null);
+  const toastTimer       = useRef(null);
+  const pinchActiveRef   = useRef(false);
+  const lastTouchEndRef  = useRef(0);
+  const locationWatchRef = useRef(null);
+  const lastNotifTimeRef = useRef(0);
+  const lastNotifLocRef  = useRef(null);
 
-  const [pins,          setPins]          = useState(loadPins);
-  const [selectedPinId, setSelectedPinId] = useState(null);
-  const [mode,          setMode]          = useState("view"); // view | placing | writing
-  const [placingCoords, setPlacingCoords] = useState(null);
-  const [isDark,        setIsDark]        = useState(true);
-  const [mapReady,      setMapReady]      = useState(false);
-  const [toast,         setToast]         = useState(null);
-  const [userLatLng,    setUserLatLng]    = useState(null);
-  const [locationStatus, setLocationStatus] = useState("idle");
-  const [forgetTargetId, setForgetTargetId] = useState(null);
-  const [foundPopup,    setFoundPopup]    = useState(null); // { lat, lng }
-  const [showTipJar,    setShowTipJar]    = useState(false);
-  const [showHelp,      setShowHelp]      = useState(false);
+  const [pins,             setPins]             = useState(loadPins);
+  const [selectedPinId,    setSelectedPinId]    = useState(null);
+  const [mode,             setMode]             = useState("view");
+  const [placingCoords,    setPlacingCoords]    = useState(null);
+  const [isDark,           setIsDark]           = useState(true);
+  const [mapReady,         setMapReady]         = useState(false);
+  const [toast,            setToast]            = useState(null);
+  const [userLatLng,       setUserLatLng]       = useState(null);
+  const [locationStatus,   setLocationStatus]   = useState("idle");
+  const [forgetTargetId,   setForgetTargetId]   = useState(null);
+  const [foundPopup,       setFoundPopup]       = useState(null);
+  const [showTipJar,       setShowTipJar]       = useState(false);
+  const [showHelp,         setShowHelp]         = useState(false);
+  const [showExportImport, setShowExportImport] = useState(false);
+  const [showFirstNudge,   setShowFirstNudge]   = useState(false);
+  const [notifPermission,  setNotifPermission]  = useState(
+    typeof Notification !== "undefined" ? Notification.permission : "default"
+  );
 
-  // Onboarding: null | "welcome" | "tour"
   const [onboardPhase, setOnboardPhase] = useState(() => {
     try { return localStorage.getItem(ONBOARDED_KEY) ? null : "welcome"; } catch { return "welcome"; }
   });
   const [tourStep, setTourStep] = useState(0);
 
-  /* ── Persist ── */
+  /* ── Apply theme & viewport meta ── */
+  useEffect(() => {
+    document.body.className = isDark ? "theme-dark" : "theme-light";
+    let meta = document.querySelector('meta[name="viewport"]');
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.name = "viewport";
+      document.head.appendChild(meta);
+    }
+    meta.content = "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover";
+
+    // Set theme-color for mobile browser chrome
+    let themeColor = document.querySelector('meta[name="theme-color"]');
+    if (!themeColor) {
+      themeColor = document.createElement("meta");
+      themeColor.name = "theme-color";
+      document.head.appendChild(themeColor);
+    }
+    themeColor.content = isDark ? "#0a0a0f" : "#f5f3ee";
+  }, [isDark]);
+
   useEffect(() => { savePins(pins); }, [pins]);
 
-  /* ── Theme token snapshot for map callbacks ── */
   const isDarkRef = useRef(isDark);
   useEffect(() => { isDarkRef.current = isDark; }, [isDark]);
+  const modeRef = useRef(mode);
+  useEffect(() => { modeRef.current = mode; }, [mode]);
 
-  /* ── Toast ── */
   const showToast = useCallback((msg) => {
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 3200);
   }, []);
+
+  /* ── Location-based notifications ── */
+  const checkAndNotify = useCallback((lat, lng) => {
+    if (Notification.permission !== "granted") return;
+    const now = Date.now();
+    if (now - lastNotifTimeRef.current < NOTIF_COOLDOWN_MS) return;
+
+    if (lastNotifLocRef.current) {
+      const d = distanceKm(lat, lng, lastNotifLocRef.current.lat, lastNotifLocRef.current.lng);
+      if (d < NOTIF_COOLDOWN_KM) return;
+    }
+
+    const notifiedLocs = loadNotifLocs();
+    const recentlyNotified = notifiedLocs.some(
+      (l) => distanceKm(lat, lng, l.lat, l.lng) < NOTIF_COOLDOWN_KM
+    );
+    if (recentlyNotified) return;
+
+    const nearbyPins = pins.filter((p) => distanceKm(lat, lng, p.lat, p.lng) <= NEARBY_RADIUS_KM);
+
+    let shown = false;
+    if (nearbyPins.length > 0) {
+      shown = showNotification(
+        "yearning — you've been here ✦",
+        nearbyPins.length === 1
+          ? `Near "${nearbyPins[0].title}". Tap to revisit.`
+          : `${nearbyPins.length} memories nearby — including "${nearbyPins[0].title}".`,
+      );
+    } else if (pins.length > 0) {
+      shown = showNotification(
+        "yearning — somewhere new ✦",
+        "You've drifted somewhere unfamiliar. Plant a thought before this moment passes.",
+      );
+    }
+
+    if (shown) {
+      lastNotifTimeRef.current = now;
+      lastNotifLocRef.current = { lat, lng };
+      saveNotifLocs([...notifiedLocs, { lat, lng, t: now }]);
+    }
+  }, [pins]);
+
+  /* ── Geolocation watch (only when permission granted) ── */
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    if (notifPermission !== "granted") return;
+    if (locationWatchRef.current) {
+      navigator.geolocation.clearWatch(locationWatchRef.current);
+      locationWatchRef.current = null;
+    }
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        checkAndNotify(lat, lng);
+      },
+      () => {},
+      {
+        enableHighAccuracy: false,
+        maximumAge: 5 * 60 * 1000,
+        timeout: 30000,
+      }
+    );
+    locationWatchRef.current = watchId;
+    return () => {
+      if (locationWatchRef.current) {
+        navigator.geolocation.clearWatch(locationWatchRef.current);
+        locationWatchRef.current = null;
+      }
+    };
+  }, [notifPermission, checkAndNotify]);
+
+  /* ── Visibility change: app reopened (push reminder) ── */
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Notification.permission !== "granted") return;
+      if (pins.length === 0) return;
+      // When user returns to the app, gently nudge them to check
+      if (!navigator.geolocation) return;
+      navigator.geolocation.getCurrentPosition(
+        (pos) => checkAndNotify(pos.coords.latitude, pos.coords.longitude),
+        () => {},
+        { timeout: 5000, maximumAge: 5 * 60 * 1000 }
+      );
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [pins, checkAndNotify]);
 
   /* ── Init Leaflet ── */
   const initMap = useCallback(() => {
@@ -857,23 +1495,48 @@ export default function Yearning() {
     const L = window.L;
     leafletRef.current = L;
 
+    const isMobile = isMobileDevice();
+
     const map = L.map(mapContainerRef.current, {
       center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM,
       zoomControl: false, attributionControl: false,
+      // CRITICAL: make pinch-zoom feel native and reliable
+      tap: false, // disable Leaflet's tap simulator (causes ghost clicks on mobile)
+      bounceAtZoomLimits: false,
+      worldCopyJump: true,
+      zoomSnap: isMobile ? 0.5 : 1,
+      zoomDelta: isMobile ? 0.5 : 1,
+      wheelDebounceTime: 40,
+      wheelPxPerZoomLevel: 120,
+      inertia: true,
+      inertiaDeceleration: 3000,
     });
 
     tileLayerRef.current = L.tileLayer(TILE_DARK, {
       attribution: TILE_ATTR, subdomains: "abcd", maxZoom: 19,
+      crossOrigin: true,
     }).addTo(map);
 
-    L.control.zoom({ position: "bottomright" }).addTo(map);
-    L.control.attribution({ position: "bottomleft", prefix: false }).addTo(map);
+    // Zoom control on the LEFT, vertically centered
+    L.control.zoom({ position: "topleft" }).addTo(map);
+    L.control.attribution({ position: "bottomright", prefix: false }).addTo(map);
+
+    // Manually center the zoom control vertically via CSS injection
+    setTimeout(() => {
+      const zoomEl = document.querySelector(".leaflet-control-zoom");
+      if (zoomEl && zoomEl.parentElement) {
+        const parent = zoomEl.parentElement;
+        parent.style.position = "absolute";
+        parent.style.top = "50%";
+        parent.style.transform = "translateY(-50%)";
+        parent.style.left = "0";
+      }
+    }, 50);
 
     mapRef.current = map;
     window.__yearningMap = map;
     setMapReady(true);
 
-    // Location-based default view (returning users)
     try {
       if (localStorage.getItem(ONBOARDED_KEY) && navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
@@ -897,6 +1560,20 @@ export default function Yearning() {
     document.head.appendChild(script);
   }, [initMap]);
 
+  /* ── Resize handling ── */
+  useEffect(() => {
+    if (!mapReady) return;
+    const handleResize = () => {
+      mapRef.current?.invalidateSize();
+    };
+    window.addEventListener("resize", handleResize);
+    window.addEventListener("orientationchange", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("orientationchange", handleResize);
+    };
+  }, [mapReady]);
+
   /* ── Theme tile swap ── */
   useEffect(() => {
     const L = leafletRef.current;
@@ -905,6 +1582,7 @@ export default function Yearning() {
     if (tileLayerRef.current) map.removeLayer(tileLayerRef.current);
     tileLayerRef.current = L.tileLayer(isDark ? TILE_DARK : TILE_LIGHT, {
       attribution: TILE_ATTR, subdomains: "abcd", maxZoom: 19,
+      crossOrigin: true,
     }).addTo(map);
     tileLayerRef.current.bringToBack();
   }, [isDark, mapReady]);
@@ -913,11 +1591,11 @@ export default function Yearning() {
   const createPinIcon = useCallback((pin, isSelected = false) => {
     const L = leafletRef.current;
     if (!L) return null;
-    const color = pin.moodColor || getMood(pin.mood).color;
+    const color = pin.moodColor || getMoodByKey(pin.mood, isDarkRef.current).color;
     const size = isSelected ? 34 : 26;
-    const html = `<div style="display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 2px 10px ${color}55)">
-      <div style="width:${size}px;height:${size}px;border-radius:50% 50% 50% 0;background:${color};transform:rotate(-45deg);border:2px solid rgba(255,255,255,0.28);box-shadow:0 0 ${isSelected ? 18 : 8}px ${color}88;transition:all 0.2s"></div>
-      <div style="width:2px;height:8px;background:${color};opacity:0.7;margin-top:-1px"></div>
+    const html = `<div style="display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 2px 10px ${color}aa);pointer-events:none">
+      <div style="width:${size}px;height:${size}px;border-radius:50% 50% 50% 0;background:${color};transform:rotate(-45deg);border:2px solid rgba(255,255,255,${isSelected ? "0.7" : "0.45"});box-shadow:0 0 ${isSelected ? 22 : 12}px ${color}cc;transition:all 0.2s;pointer-events:auto"></div>
+      <div style="width:2px;height:8px;background:${color};opacity:0.85;margin-top:-1px;pointer-events:none"></div>
     </div>`;
     return L.divIcon({ html, className: "", iconSize: [size + 4, size + 16], iconAnchor: [(size + 4) / 2, size + 16] });
   }, []);
@@ -931,7 +1609,7 @@ export default function Yearning() {
     markersRef.current = {};
     pins.forEach((pin) => {
       const icon = createPinIcon(pin, pin.id === selectedPinId);
-      const marker = L.marker([pin.lat, pin.lng], { icon }).addTo(map);
+      const marker = L.marker([pin.lat, pin.lng], { icon, riseOnHover: true }).addTo(map);
       marker.on("click", (e) => {
         L.DomEvent.stopPropagation(e);
         haptic("light");
@@ -939,16 +1617,17 @@ export default function Yearning() {
       });
       markersRef.current[pin.id] = marker;
     });
-  }, [pins, mapReady, selectedPinId, createPinIcon]);
+  }, [pins, mapReady, selectedPinId, createPinIcon, isDark]);
 
   /* ── Map click ── */
-  const modeRef = useRef(mode);
-  useEffect(() => { modeRef.current = mode; }, [mode]);
-
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     const handleClick = (e) => {
+      // Suppress click immediately after a pinch or multi-touch
+      if (pinchActiveRef.current) return;
+      if (Date.now() - lastTouchEndRef.current < 350) return;
+
       if (modeRef.current === "placing") {
         openWriting({ lat: e.latlng.lat, lng: e.latlng.lng });
       } else {
@@ -959,50 +1638,101 @@ export default function Yearning() {
     return () => map.off("click", handleClick);
   }, [mapReady]);
 
-  /* ── Long press ── */
+  /* ── Touch handling: pinch-detection FIRST, then long-press ── */
   useEffect(() => {
     const container = mapContainerRef.current;
     if (!container || !mapReady) return;
-    let lpStart = null;
 
-    const start = (e) => {
-      if (modeRef.current !== "view") return;
-      const touch = e.touches?.[0];
-      lpStart = touch ? { x: touch.clientX, y: touch.clientY } : null;
+    let lpStart = null;
+    let touchStartTime = 0;
+
+    const clearLP = () => {
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
+      }
+      lpStart = null;
+    };
+
+    const onTouchStart = (e) => {
+      // If 2+ fingers at any point, ABORT long-press immediately
+      if (e.touches.length >= 2) {
+        pinchActiveRef.current = true;
+        clearLP();
+        return;
+      }
+
+      // Single finger — could be tap, long-press, or pan
+      pinchActiveRef.current = false;
+      touchStartTime = Date.now();
+
+      // Don't trigger long-press if a modal is open or we're not in view/placing
+      if (modeRef.current !== "view" && modeRef.current !== "placing") return;
+
+      const touch = e.touches[0];
+      lpStart = { x: touch.clientX, y: touch.clientY, target: e.target };
+
       longPressTimer.current = setTimeout(() => {
+        // Final safety check: only fire if still 1 finger and not in pinch
+        if (!lpStart || pinchActiveRef.current) return;
         const map = mapRef.current;
         if (!map) return;
+
         const rect = container.getBoundingClientRect();
-        const pt = touch
-          ? map.containerPointToLatLng([touch.clientX - rect.left, touch.clientY - rect.top])
-          : map.getCenter();
+        const pt = map.containerPointToLatLng([
+          lpStart.x - rect.left,
+          lpStart.y - rect.top,
+        ]);
         haptic("medium");
+        playSound("chime");
         openWriting({ lat: pt.lat, lng: pt.lng });
         showToast("long-press pinned ✦");
+        lpStart = null;
       }, 600);
     };
-    const move = (e) => {
-      if (!lpStart || !e.touches) return;
+
+    const onTouchMove = (e) => {
+      // Multi-touch detected during move — definitely a pinch
+      if (e.touches.length >= 2) {
+        pinchActiveRef.current = true;
+        clearLP();
+        return;
+      }
+      // Single touch moved too far — it's a pan, not a long-press
+      if (!lpStart || !e.touches[0]) return;
       const t = e.touches[0];
-      if (Math.abs(t.clientX - lpStart.x) > 8 || Math.abs(t.clientY - lpStart.y) > 8) {
-        clearTimeout(longPressTimer.current); lpStart = null;
+      if (Math.abs(t.clientX - lpStart.x) > 10 || Math.abs(t.clientY - lpStart.y) > 10) {
+        clearLP();
       }
     };
-    const cancel = () => { clearTimeout(longPressTimer.current); lpStart = null; };
 
-    container.addEventListener("touchstart", start, { passive: true });
-    container.addEventListener("touchmove",  move,  { passive: true });
-    container.addEventListener("touchend",   cancel);
-    container.addEventListener("mousedown",  start);
-    container.addEventListener("mouseup",    cancel);
-    container.addEventListener("mousemove",  cancel);
+    const onTouchEnd = (e) => {
+      lastTouchEndRef.current = Date.now();
+      clearLP();
+
+      // Reset pinch flag after small delay so the synthetic click after
+      // the gesture is suppressed by the click handler above.
+      if (e.touches.length === 0) {
+        setTimeout(() => { pinchActiveRef.current = false; }, 250);
+      }
+    };
+
+    const onTouchCancel = () => {
+      clearLP();
+      setTimeout(() => { pinchActiveRef.current = false; }, 250);
+    };
+
+    container.addEventListener("touchstart",  onTouchStart, { passive: true });
+    container.addEventListener("touchmove",   onTouchMove,  { passive: true });
+    container.addEventListener("touchend",    onTouchEnd,   { passive: true });
+    container.addEventListener("touchcancel", onTouchCancel,{ passive: true });
+
     return () => {
-      container.removeEventListener("touchstart", start);
-      container.removeEventListener("touchmove",  move);
-      container.removeEventListener("touchend",   cancel);
-      container.removeEventListener("mousedown",  start);
-      container.removeEventListener("mouseup",    cancel);
-      container.removeEventListener("mousemove",  cancel);
+      container.removeEventListener("touchstart",  onTouchStart);
+      container.removeEventListener("touchmove",   onTouchMove);
+      container.removeEventListener("touchend",    onTouchEnd);
+      container.removeEventListener("touchcancel", onTouchCancel);
+      clearLP();
     };
   }, [mapReady, showToast]);
 
@@ -1028,6 +1758,19 @@ export default function Yearning() {
     setSelectedPinId(newPin.id);
     mapRef.current?.flyTo([newPin.lat, newPin.lng], 16, { duration: 1.2 });
     showToast("Memory planted ✦");
+    setShowFirstNudge(false);
+    // Request notification permission on first plant (gentle nudge)
+    if (Notification.permission === "default") {
+      setTimeout(async () => {
+        const granted = await requestNotificationPermission();
+        if (granted) {
+          setNotifPermission("granted");
+          showToast("location reminders enabled ·˚");
+        } else {
+          setNotifPermission(Notification.permission);
+        }
+      }, 1500);
+    }
   };
 
   const requestLocation = useCallback(() => {
@@ -1043,10 +1786,11 @@ export default function Yearning() {
         const map = mapRef.current;
         if (!L || !map) return;
         if (userMarkerRef.current) map.removeLayer(userMarkerRef.current);
-        const pulseHtml = `<div style="position:relative;width:20px;height:20px;"><div style="position:absolute;inset:0;border-radius:50%;background:rgba(103,232,249,0.18);animation:gps-pulse 2s infinite"></div><div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:10px;height:10px;border-radius:50%;background:#67e8f9;border:2px solid white;box-shadow:0 0 8px #67e8f9"></div></div>`;
+        const pulseHtml = `<div style="position:relative;width:20px;height:20px;pointer-events:none"><div style="position:absolute;inset:0;border-radius:50%;background:rgba(8,145,178,0.22);animation:gps-pulse 2s infinite"></div><div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:11px;height:11px;border-radius:50%;background:#22d3ee;border:2px solid white;box-shadow:0 0 10px #22d3ee"></div></div>`;
         userMarkerRef.current = L.marker([lat, lng], {
           icon: L.divIcon({ html: pulseHtml, className: "", iconSize: [20, 20], iconAnchor: [10, 10] }),
           zIndexOffset: 1000,
+          interactive: false,
         }).addTo(map);
         map.flyTo([lat, lng], 10, { duration: 2 });
         setTimeout(() => setFoundPopup({ lat, lng }), 2100);
@@ -1085,11 +1829,41 @@ export default function Yearning() {
     showToast("gently forgotten ·˚");
   };
 
+  const handleImport = (importedPins) => {
+    setPins((current) => {
+      const existingIds = new Set(current.map((p) => p.id));
+      const newPins = importedPins.filter((p) => !existingIds.has(p.id));
+      return [...current, ...newPins];
+    });
+    showToast(`${importedPins.length} memories restored ✦`);
+  };
+
+  const handleEnableNotifications = useCallback(async () => {
+    haptic("light");
+    const granted = await requestNotificationPermission();
+    setNotifPermission(typeof Notification !== "undefined" ? Notification.permission : "default");
+    if (granted) {
+      showToast("location reminders enabled ·˚");
+      // Try to immediately get current position to seed
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => checkAndNotify(pos.coords.latitude, pos.coords.longitude),
+          () => {},
+          { timeout: 5000 }
+        );
+      }
+    } else {
+      showToast("notifications not enabled");
+    }
+  }, [showToast, checkAndNotify]);
+
   /* ── Onboarding ── */
   const finishOnboarding = () => {
     try { localStorage.setItem(ONBOARDED_KEY, "1"); } catch {}
     setOnboardPhase(null);
     setTourStep(0);
+    // Show first-plant nudge shortly after onboarding ends
+    setTimeout(() => setShowFirstNudge(true), 700);
   };
   const skipOnboarding = () => {
     finishOnboarding();
@@ -1101,27 +1875,40 @@ export default function Yearning() {
   const selectedPin = pins.find((p) => p.id === selectedPinId);
   const forgetTargetPin = pins.find((p) => p.id === forgetTargetId);
 
+  const toolBtnStyle = {
+    background: T.toolBg,
+    borderColor: T.toolBorder,
+    color: T.toolColor,
+  };
+
+  const cyan = isDark ? "#22d3ee" : "#0e7490";
+  const purple = isDark ? "#a855f7" : "#6d28d9";
+
   return (
-    <div style={{ width: "100%", height: "100vh", background: "#0a0a0f", overflow: "hidden", position: "relative" }}>
+    <div style={{
+      width: "100%", height: "100dvh",
+      background: isDark ? "#0a0a0f" : "#f5f3ee",
+      overflow: "hidden", position: "relative",
+    }}>
       <style>{GLOBAL_CSS}</style>
 
       {/* Map */}
       <div ref={mapContainerRef} style={{ position: "absolute", inset: 0, zIndex: 0 }} />
 
-      {/* Header */}
+      {/* Header gradient */}
       <div style={{
-        position: "absolute", top: 0, left: 0, right: 0, zIndex: 100,
-        padding: "18px 22px 44px",
+        position: "fixed", top: 0, left: 0, right: 0, zIndex: 100,
+        padding: "max(18px, calc(env(safe-area-inset-top, 0px) + 14px)) 22px 44px",
         background: T.headerGrad,
         pointerEvents: "none",
         display: "flex", alignItems: "flex-start", justifyContent: "space-between",
       }}>
         <div>
-          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 26, fontWeight: 400, color: T.textPrimary, letterSpacing: "0.06em", lineHeight: 1 }}>yearning</div>
-          <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.12em", marginTop: 4, fontStyle: "italic" }}>leave a part of yourself somewhere</div>
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 26, fontWeight: 500, color: T.textPrimary, letterSpacing: "0.06em", lineHeight: 1 }}>yearning</div>
+          <div style={{ fontFamily: "'Lora',serif", fontSize: 11, color: T.textMuted, letterSpacing: "0.12em", marginTop: 4, fontStyle: "italic", fontWeight: 500 }}>leave a part of yourself somewhere</div>
         </div>
         {pins.length > 0 && (
-          <div style={{ fontFamily: "'Lora',serif", fontSize: 11.5, color: T.textMuted, letterSpacing: "0.1em", marginTop: 4 }}>
+          <div style={{ fontFamily: "'Lora',serif", fontSize: 12, color: T.textSec, letterSpacing: "0.1em", marginTop: 4, fontWeight: 600 }}>
             {pins.length} {pins.length === 1 ? "memory" : "memories"}
           </div>
         )}
@@ -1132,76 +1919,84 @@ export default function Yearning() {
 
       {/* Right toolbar */}
       {mode !== "placing" && (
-        <div id="toolbar" style={{ position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)", zIndex: 100, display: "flex", flexDirection: "column", gap: 8 }}>
-
-          {/* Locate */}
+        <div id="toolbar" style={{
+          position: "fixed",
+          right: "max(14px, env(safe-area-inset-right, 14px))",
+          top: "50%", transform: "translateY(-50%)",
+          zIndex: 100, display: "flex", flexDirection: "column", gap: 8,
+        }}>
           <button
             id="btn-locate"
             className="yr-tool-btn"
             title="Locate me"
-            onClick={requestLocation}
+            aria-label="Locate me"
+            onClick={() => { haptic("light"); requestLocation(); }}
             style={{
-              background: locationStatus === "granted" ? "rgba(103,232,249,0.12)" : T.toolBg,
-              borderColor: locationStatus === "granted" ? "rgba(103,232,249,0.45)" : T.panelBorder,
-              color: locationStatus === "granted" ? "#67e8f9" : T.textSec,
+              background: locationStatus === "granted"
+                ? (isDark ? "rgba(8,145,178,0.18)" : "rgba(14,116,144,0.12)")
+                : T.toolBg,
+              borderColor: locationStatus === "granted"
+                ? cyan
+                : T.toolBorder,
+              color: locationStatus === "granted" ? cyan : T.toolColor,
             }}
           >
             {locationStatus === "requesting"
-              ? <div style={{ width: 14, height: 14, border: "2px solid rgba(103,232,249,0.3)", borderTopColor: "#67e8f9", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+              ? <div style={{ width: 14, height: 14, border: `2px solid ${cyan}40`, borderTopColor: cyan, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
               : "◎"}
           </button>
 
-          {/* Plant here */}
-          <ToolBtn id="btn-plant" title={userLatLng ? "Plant at my location" : "Plant at map center"}
-            onClick={() => { haptic("medium"); userLatLng ? openWriting(userLatLng) : plantAtCenter(); }}
-            style={{ background: "rgba(192,132,252,0.1)", borderColor: "rgba(192,132,252,0.35)", color: "#c084fc" }}>
+          <ToolBtn id="btn-plant"
+            title={userLatLng ? "Plant at my location" : "Plant at map center"}
+            onClick={() => { userLatLng ? openWriting(userLatLng) : plantAtCenter(); }}
+            style={{ background: `${purple}1f`, borderColor: purple, color: purple }}>
             ✦
           </ToolBtn>
 
-          {/* Tap anywhere */}
           <ToolBtn id="btn-place" title="Tap anywhere on map"
-            onClick={() => { haptic("light"); setMode("placing"); setSelectedPinId(null); }}
-            style={{ background: T.toolBg, borderColor: T.panelBorder, color: T.textSec, fontSize: 22 }}>
+            onClick={() => { setMode("placing"); setSelectedPinId(null); showToast("tap a spot · or long-press"); }}
+            style={{ ...toolBtnStyle, fontSize: 22, fontWeight: 400 }}>
             +
           </ToolBtn>
 
-          {/* Random memory */}
           {pins.length > 0 && (
             <ToolBtn id="btn-random" title="Jump to a random memory"
               onClick={jumpRandom}
-              style={{ background: T.toolBg, borderColor: T.panelBorder, color: T.textMuted, fontSize: 14 }}>
+              style={{ ...toolBtnStyle, fontSize: 14 }}>
               ↝
             </ToolBtn>
           )}
 
-          {/* Reset view */}
           <ToolBtn id="btn-reset" title="Reset view"
             onClick={resetView}
-            style={{ background: T.toolBg, borderColor: T.panelBorder, color: T.textMuted, fontSize: 16 }}>
+            style={{ ...toolBtnStyle, fontSize: 16 }}>
             ⌂
           </ToolBtn>
 
-          {/* Divider */}
-          <div style={{ height: 1, background: T.panelBorder, borderRadius: 1, margin: "2px 6px" }} />
+          <div style={{ height: 1, background: T.panelBorder, borderRadius: 1, margin: "2px 8px" }} />
 
-          {/* Theme toggle */}
-          <ToolBtn id="btn-theme" title={isDark ? "Switch to light map" : "Switch to dark map"}
-            onClick={() => { haptic("light"); setIsDark((v) => !v); }}
-            style={{ background: T.toolBg, borderColor: T.panelBorder, color: T.textMuted, fontSize: 14 }}>
+          <ToolBtn id="btn-theme"
+            title={isDark ? "Switch to light map" : "Switch to dark map"}
+            onClick={() => { setIsDark((v) => !v); }}
+            style={{ ...toolBtnStyle, fontSize: 14 }}>
             ◑
           </ToolBtn>
 
-          {/* Tip jar */}
+          <ToolBtn id="btn-exportimport" title="Export / Import memories"
+            onClick={() => { setShowExportImport(true); }}
+            style={{ ...toolBtnStyle, fontSize: 14 }}>
+            ⬇
+          </ToolBtn>
+
           <ToolBtn id="btn-tipjar" title="Support Yearning"
-            onClick={() => { haptic("light"); setShowTipJar(true); }}
-            style={{ background: T.toolBg, borderColor: T.panelBorder, color: T.textMuted }}>
+            onClick={() => { setShowTipJar(true); }}
+            style={toolBtnStyle}>
             ☕
           </ToolBtn>
 
-          {/* Help */}
           <ToolBtn id="btn-help" title="Help"
-            onClick={() => { haptic("light"); setShowHelp(true); }}
-            style={{ background: T.toolBg, borderColor: T.panelBorder, color: T.textMuted, fontFamily: "'Lora',serif", fontStyle: "italic", fontWeight: 500, fontSize: 16 }}>
+            onClick={() => { setShowHelp(true); }}
+            style={{ ...toolBtnStyle, fontFamily: "'Lora',serif", fontStyle: "italic", fontWeight: 600, fontSize: 16 }}>
             i
           </ToolBtn>
         </div>
@@ -1212,20 +2007,32 @@ export default function Yearning() {
         <button
           className="yr-tool-btn"
           onClick={() => { haptic("light"); setMode("view"); }}
-          style={{ position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)", zIndex: 100, background: "rgba(248,113,113,0.09)", borderColor: "rgba(248,113,113,0.32)", color: "rgba(248,113,113,0.75)", fontSize: 20 }}
+          aria-label="Cancel placing"
+          style={{ position: "fixed", right: "max(14px, env(safe-area-inset-right, 14px))", top: "50%", transform: "translateY(-50%)", zIndex: 100, background: "rgba(220,38,38,0.14)", borderColor: "rgba(220,38,38,0.5)", color: isDark ? "rgba(252,165,165,1)" : "#b91c1c", fontSize: 22 }}
         >×</button>
       )}
 
-      {/* Mood legend */}
-      <div style={{ position: "absolute", left: 14, bottom: 56, zIndex: 100, display: "flex", flexDirection: "column", gap: 6 }}>
-        {MOODS.filter((m) => m.key !== "other").map((m) => (
-          <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 7, height: 7, borderRadius: "50%", background: m.color, flexShrink: 0, boxShadow: `0 0 4px ${m.color}88` }} />
+      {/* Mood legend — bottom left */}
+      <div style={{
+        position: "fixed",
+        left: "max(14px, env(safe-area-inset-left, 14px))",
+        bottom: "max(56px, calc(env(safe-area-inset-bottom, 0px) + 56px))",
+        zIndex: 100, display: "flex", flexDirection: "column", gap: 5,
+      }}>
+        {T.moods.map((m) => (
+          <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 7 }}>
+            <div style={{
+              width: 8, height: 8, borderRadius: "50%", background: m.color, flexShrink: 0,
+              boxShadow: `0 0 5px ${m.color}aa`,
+            }} />
             <span style={{
-              fontFamily: "'Lora',serif", fontSize: 11, letterSpacing: "0.14em",
+              fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.12em",
               color: T.textPrimary,
               background: T.legendChipBg,
-              padding: "1px 6px", borderRadius: 3, backdropFilter: "blur(4px)",
+              border: `1px solid ${T.legendChipBorder}`,
+              padding: "2px 8px", borderRadius: 4,
+              backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)",
+              fontWeight: 600,
             }}>{m.label}</span>
           </div>
         ))}
@@ -1234,38 +2041,54 @@ export default function Yearning() {
       {/* Placing hint */}
       {mode === "placing" && (
         <div style={{
-          position: "absolute", bottom: 30, left: "50%", transform: "translateX(-50%)",
-          background: T.panelBg, backdropFilter: "blur(12px)",
-          border: `1px solid ${T.panelBorder}`, borderRadius: 4,
-          padding: "10px 22px", zIndex: 100,
-          fontFamily: "'Lora',serif", fontSize: 13, color: T.textSec,
-          letterSpacing: "0.12em", fontStyle: "italic",
-          animation: "fadeUp 0.25s ease", whiteSpace: "nowrap",
+          position: "fixed", bottom: "max(30px, calc(env(safe-area-inset-bottom, 0px) + 30px))",
+          left: "50%", transform: "translateX(-50%)",
+          background: T.panelBg, backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+          border: `1px solid ${T.panelBorder}`, borderRadius: 6,
+          padding: "11px 22px", zIndex: 100,
+          fontFamily: "'Lora',serif", fontSize: 13, color: T.textPrimary,
+          letterSpacing: "0.12em", fontStyle: "italic", fontWeight: 500,
+          animation: "fadeUp 0.25s ease",
+          maxWidth: "calc(100vw - 28px)", textAlign: "center",
+          boxShadow: isDark ? "0 4px 20px rgba(0,0,0,0.5)" : "0 4px 20px rgba(0,0,0,0.15)",
         }}>
           tap anywhere · or long-press to plant instantly
         </div>
       )}
 
       {/* Empty state */}
-      {pins.length === 0 && mode === "view" && mapReady && !selectedPinId && (
+      {pins.length === 0 && mode === "view" && mapReady && !selectedPinId && !showFirstNudge && onboardPhase === null && (
         <div style={{
-          position: "absolute", bottom: 30, left: "50%", transform: "translateX(-50%)",
-          background: T.panelBg, backdropFilter: "blur(12px)",
-          border: `1px solid ${T.panelBorder}`, borderRadius: 4,
+          position: "fixed", bottom: "max(30px, calc(env(safe-area-inset-bottom, 0px) + 30px))",
+          left: "50%", transform: "translateX(-50%)",
+          background: T.panelBg, backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+          border: `1px solid ${T.panelBorder}`, borderRadius: 6,
           padding: "12px 22px", zIndex: 100, textAlign: "center",
           animation: "fadeUp 0.4s ease",
-          boxShadow: isDark ? "0 4px 20px rgba(0,0,0,0.4)" : "0 4px 20px rgba(0,0,0,0.1)",
+          boxShadow: isDark ? "0 4px 20px rgba(0,0,0,0.4)" : "0 4px 20px rgba(0,0,0,0.14)",
+          maxWidth: "calc(100vw - 28px)",
         }}>
-          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, color: T.textPrimary, letterSpacing: "0.04em", marginBottom: 4 }}>
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, color: T.textPrimary, letterSpacing: "0.04em", marginBottom: 4, fontWeight: 500 }}>
             the map is waiting
           </div>
-          <div style={{ fontFamily: "'Lora',serif", fontSize: 12, color: T.textMuted, fontStyle: "italic", letterSpacing: "0.08em" }}>
-            tap <strong style={{ fontStyle: "normal", color: "#c084fc" }}>✦</strong> or <strong style={{ fontStyle: "normal", color: T.textSec }}>+</strong> to plant your first memory
+          <div style={{ fontFamily: "'Lora',serif", fontSize: 12, color: T.textSec, fontStyle: "italic", letterSpacing: "0.08em" }}>
+            tap <strong style={{ fontStyle: "normal", color: purple, fontWeight: 700 }}>✦</strong> or <strong style={{ fontStyle: "normal", color: T.textPrimary, fontWeight: 700 }}>+</strong> to plant your first memory
           </div>
         </div>
       )}
 
-      {/* Pin card anchored to map */}
+      {/* First plant nudge */}
+      {showFirstNudge && pins.length === 0 && mode === "view" && onboardPhase === null && (
+        <FirstPlantNudge
+          isDark={isDark}
+          hasLocation={!!userLatLng}
+          onPlantHere={() => { setShowFirstNudge(false); openWriting(userLatLng); }}
+          onPlantWhere={() => { setShowFirstNudge(false); plantAtCenter(); }}
+          onDismiss={() => setShowFirstNudge(false)}
+        />
+      )}
+
+      {/* Pin card */}
       {selectedPin && mode === "view" && mapRef.current && (
         <PinCard
           pin={selectedPin}
@@ -1276,7 +2099,7 @@ export default function Yearning() {
         />
       )}
 
-      {/* Found-you popup */}
+      {/* Found popup */}
       {foundPopup && mapRef.current && (
         <FoundPopup lat={foundPopup.lat} lng={foundPopup.lng} mapInstance={mapRef.current} />
       )}
@@ -1291,13 +2114,30 @@ export default function Yearning() {
         <ForgetModal pin={forgetTargetPin} onConfirm={confirmForget} onCancel={() => setForgetTargetId(null)} isDark={isDark} />
       )}
 
+      {/* Export / Import */}
+      {showExportImport && (
+        <ExportImportModal
+          pins={pins}
+          onImport={handleImport}
+          onClose={() => setShowExportImport(false)}
+          isDark={isDark}
+        />
+      )}
+
       {/* Tip jar */}
       {showTipJar && <TipJarModal onClose={() => setShowTipJar(false)} isDark={isDark} />}
 
       {/* Help */}
-      {showHelp && <HelpModal onClose={() => setShowHelp(false)} isDark={isDark} />}
+      {showHelp && (
+        <HelpModal
+          onClose={() => setShowHelp(false)}
+          isDark={isDark}
+          onEnableNotifications={handleEnableNotifications}
+          notifPermission={notifPermission}
+        />
+      )}
 
-      {/* Onboarding welcome */}
+      {/* Onboarding */}
       {onboardPhase === "welcome" && (
         <WelcomeModal
           onStartTour={() => { setOnboardPhase("tour"); setTourStep(0); }}
@@ -1305,7 +2145,6 @@ export default function Yearning() {
         />
       )}
 
-      {/* Tour */}
       {onboardPhase === "tour" && (
         <TourOverlay
           step={tourStep}
@@ -1317,11 +2156,11 @@ export default function Yearning() {
           onPrev={() => setTourStep((s) => Math.max(0, s - 1))}
           onSkip={skipOnboarding}
         />
+
       )}
 
-      {/* Toast */}
-      <Toast msg={toast} />
-       <SpeedInsights />
+      <Toast msg={toast} isDark={isDark} />
+         <SpeedInsights />
         <Analytics />
     </div>
   );
