@@ -1,3 +1,4 @@
+<link rel="manifest" href="/manifest.json" />
 import { Html, Head, Main, NextScript } from "next/document";
 
 export default function Document() {

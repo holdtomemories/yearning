@@ -2,19 +2,62 @@ import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from '@vercel/speed-insights/react';
 import { useState, useEffect, useRef, useCallback } from "react";
 
+/* ─── App version & changelog ───────────────────────────────────────────── */
+/* Bump APP_VERSION whenever you ship a meaningful change. Add an entry to
+   CHANGELOG. Users see the "what's new" panel ONCE per new version they
+   haven't acknowledged yet. Memories are migrated and preserved across every
+   version bump — see migratePins() below. */
+const APP_VERSION = "1.2.0";
+const CHANGELOG = [
+  {
+    version: "1.2.0",
+    date: "April 2026",
+    title: "Updates that remember you",
+    notes: [
+      "Your memories now survive every app update — automatically and safely.",
+      "Higher contrast on light & dark maps so every word is easy to read.",
+      "Fixed pinch-to-zoom on mobile — it no longer opens the plant modal by accident.",
+      "Location reminders nudge you when you're within 5km of a memory, or somewhere new.",
+      "Added export and import, back up your memories or move them between devices.",
+      "First-time users now get a gentle prompt to plant their first thought.",
+      "Better support for iPhone and Android home-screen install (PWA).",
+    ],
+  },
+  {
+    version: "1.1.0",
+    date: "March 2026",
+    title: "Quieter, kinder onboarding",
+    notes: [
+      "Welcome tour walks you through every tool the first time.",
+      "Help center now lives permanently in the i button.",
+    ],
+  },
+  {
+    version: "1.0.0",
+    date: "February 2026",
+    title: "Yearning begins",
+    notes: ["Plant your first memory anywhere on earth."],
+  },
+];
+
 /* ─── Constants ─────────────────────────────────────────────────────────── */
-const STORAGE_KEY    = "yearning_pins_v3";
-const ONBOARDED_KEY  = "yearning_onboarded_v3";
-const NOTIF_LOCS_KEY = "yearning_notified_locs_v1";
-const KOFI_URL       = "https://ko-fi.com/donatetoyearning";
-const DEFAULT_CENTER = [20, 0];
-const DEFAULT_ZOOM   = 2;
-const TILE_ATTR      = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>';
-const TILE_DARK      = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
-const TILE_LIGHT     = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
-const NEARBY_RADIUS_KM = 5;
-const NOTIF_COOLDOWN_KM = 1.0; // don't re-notify within 1km of last notification
-const NOTIF_COOLDOWN_MS = 30 * 60 * 1000; // 30 min cooldown between notifications
+const STORAGE_KEY     = "yearning_pins_v3";
+const ONBOARDED_KEY   = "yearning_onboarded_v3";
+const NOTIF_LOCS_KEY  = "yearning_notified_locs_v1";
+const VERSION_KEY     = "yearning_last_seen_version";
+const SCHEMA_KEY      = "yearning_schema_version";
+const BACKUP_KEY      = "yearning_pins_backups";
+const KOFI_URL        = "https://ko-fi.com/donatetoyearning";
+const DEFAULT_CENTER  = [20, 0];
+const DEFAULT_ZOOM    = 2;
+const TILE_ATTR       = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>';
+const TILE_DARK       = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+const TILE_LIGHT      = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+const NEARBY_RADIUS_KM   = 5;
+const NOTIF_COOLDOWN_KM  = 1.0;
+const NOTIF_COOLDOWN_MS  = 30 * 60 * 1000;
+const CURRENT_SCHEMA     = 2;
+const MAX_BACKUPS        = 3;
 
 const MOODS_DARK = [
   { key: "wonder",    label: "Wonder",    color: "#a855f7" },
@@ -26,7 +69,6 @@ const MOODS_DARK = [
   { key: "other",     label: "Other",     color: "#9ca3af" },
 ];
 
-// High-contrast versions for light map (darker, more saturated)
 const MOODS_LIGHT = [
   { key: "wonder",    label: "Wonder",    color: "#6d28d9" },
   { key: "peace",     label: "Peace",     color: "#0e7490" },
@@ -56,12 +98,86 @@ const getMoodByKey = (key, isDark = true) => {
   return set.find((m) => m.key === key) ?? set[0];
 };
 
-function loadPins() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; }
+/* ─── Migration & persistence ──────────────────────────────────────────── */
+function rawLoadPins() {
+  try {
+    const txt = localStorage.getItem(STORAGE_KEY);
+    if (!txt) return [];
+    const parsed = JSON.parse(txt);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
 }
-function savePins(pins) {
+
+function rawSavePins(pins) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(pins)); } catch {}
 }
+
+function getStoredSchemaVersion() {
+  try {
+    const v = localStorage.getItem(SCHEMA_KEY);
+    return v ? parseInt(v, 10) : 1;
+  } catch { return 1; }
+}
+
+function setStoredSchemaVersion(v) {
+  try { localStorage.setItem(SCHEMA_KEY, String(v)); } catch {}
+}
+
+function pushBackup(pins) {
+  try {
+    const existing = JSON.parse(localStorage.getItem(BACKUP_KEY) || "[]");
+    existing.unshift({ at: Date.now(), version: APP_VERSION, pins });
+    localStorage.setItem(BACKUP_KEY, JSON.stringify(existing.slice(0, MAX_BACKUPS)));
+  } catch {}
+}
+
+function getBackups() {
+  try { return JSON.parse(localStorage.getItem(BACKUP_KEY) || "[]"); } catch { return []; }
+}
+
+const MIGRATIONS = {
+  // schema 1 → 2: ensure every pin has createdAt, stable id, and mood metadata
+  1: (pins) => pins.map((p) => ({
+    ...p,
+    id: p.id || `legacy-${Math.random().toString(36).slice(2)}-${Date.now()}`,
+    createdAt: p.createdAt || (typeof p.id === "string" && /^\d+$/.test(p.id) ? parseInt(p.id, 10) : Date.now()),
+    moodLabel: p.moodLabel || (p.mood === "other" ? p.customMood || "Other" : (MOODS_DARK.find((m) => m.key === p.mood)?.label ?? "Wonder")),
+    moodColor: p.moodColor || (MOODS_DARK.find((m) => m.key === p.mood)?.color ?? MOODS_DARK[0].color),
+  })),
+};
+
+function migratePins(rawPins) {
+  let pins = Array.isArray(rawPins) ? [...rawPins] : [];
+  let from = getStoredSchemaVersion();
+  if (from >= CURRENT_SCHEMA) return { pins, migrated: false };
+  pushBackup(rawPins);
+  try {
+    while (from < CURRENT_SCHEMA) {
+      const fn = MIGRATIONS[from];
+      if (!fn) { from += 1; continue; }
+      pins = fn(pins);
+      from += 1;
+    }
+    setStoredSchemaVersion(CURRENT_SCHEMA);
+    rawSavePins(pins);
+    return { pins, migrated: true };
+  } catch (err) {
+    console.error("[Yearning] migration failed, restoring backup:", err);
+    const backups = getBackups();
+    if (backups.length > 0) {
+      rawSavePins(backups[0].pins);
+      return { pins: backups[0].pins, migrated: false, recovered: true };
+    }
+    return { pins: rawPins, migrated: false };
+  }
+}
+
+function loadPinsWithMigration() {
+  const raw = rawLoadPins();
+  const result = migratePins(raw);
+  return result.pins;
+}
+
 function loadNotifLocs() {
   try { return JSON.parse(localStorage.getItem(NOTIF_LOCS_KEY)) || []; } catch { return []; }
 }
@@ -69,11 +185,30 @@ function saveNotifLocs(locs) {
   try { localStorage.setItem(NOTIF_LOCS_KEY, JSON.stringify(locs.slice(-30))); } catch {}
 }
 
-// Haptic: uses Vibration API
+function getLastSeenVersion() {
+  try { return localStorage.getItem(VERSION_KEY); } catch { return null; }
+}
+function setLastSeenVersion(v) {
+  try { localStorage.setItem(VERSION_KEY, v); } catch {}
+}
+
+function compareVersions(a, b) {
+  if (!a) return -1;
+  if (!b) return 1;
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+    const x = pa[i] || 0, y = pb[i] || 0;
+    if (x < y) return -1;
+    if (x > y) return 1;
+  }
+  return 0;
+}
+
 function haptic(style = "light") {
   try {
     if (navigator.vibrate) {
-      if (style === "heavy")       navigator.vibrate([30, 10, 30, 10, 30]);
+      if (style === "heavy")        navigator.vibrate([30, 10, 30, 10, 30]);
       else if (style === "success") navigator.vibrate([15, 40, 15]);
       else if (style === "medium")  navigator.vibrate(20);
       else                          navigator.vibrate(8);
@@ -81,13 +216,10 @@ function haptic(style = "light") {
   } catch {}
 }
 
-// Sound: tiny AudioContext tones
 let _sharedAudioCtx = null;
 function getAudioCtx() {
   try {
-    if (!_sharedAudioCtx) {
-      _sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
+    if (!_sharedAudioCtx) _sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (_sharedAudioCtx.state === "suspended") _sharedAudioCtx.resume();
     return _sharedAudioCtx;
   } catch { return null; }
@@ -99,56 +231,47 @@ function playSound(type = "plant") {
     if (!ctx) return;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
+    osc.connect(gain); gain.connect(ctx.destination);
     if (type === "plant") {
       osc.type = "sine";
       osc.frequency.setValueAtTime(523, ctx.currentTime);
       osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.18);
       gain.gain.setValueAtTime(0.18, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.4);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
     } else if (type === "forget") {
       osc.type = "sine";
       osc.frequency.setValueAtTime(440, ctx.currentTime);
       osc.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 0.35);
       gain.gain.setValueAtTime(0.14, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.5);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5);
     } else if (type === "chime") {
       osc.type = "sine";
       osc.frequency.setValueAtTime(660, ctx.currentTime);
       osc.frequency.exponentialRampToValueAtTime(990, ctx.currentTime + 0.12);
       gain.gain.setValueAtTime(0.10, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.3);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.3);
     }
   } catch {}
 }
 
-// Haversine distance in km
 function distanceKm(lat1, lng1, lat2, lng2) {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLng / 2) ** 2;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// Detect if mobile-ish
 function isMobileDevice() {
   if (typeof window === "undefined") return false;
   return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768;
 }
 
-// Request push notification permission
 async function requestNotificationPermission() {
   try {
     if (!("Notification" in window)) return false;
@@ -159,22 +282,48 @@ async function requestNotificationPermission() {
   } catch { return false; }
 }
 
-// Show a local notification
 function showNotification(title, body, onClick) {
   try {
     if (!("Notification" in window) || Notification.permission !== "granted") return false;
     const n = new Notification(title, {
-      body,
-      icon: "/favicon.ico",
-      badge: "/favicon.ico",
-      vibrate: [100, 50, 100],
-      tag: "yearning-location",
-      renotify: true,
-      silent: false,
+      body, icon: "/favicon.ico", badge: "/favicon.ico",
+      vibrate: [100, 50, 100], tag: "yearning-location", renotify: true, silent: false,
     });
     if (onClick) n.onclick = () => { try { window.focus(); onClick(); } catch {} };
     return true;
   } catch { return false; }
+}
+
+/* ─── Service worker registration (if /sw.js is hosted) ────────────────── */
+function registerServiceWorker(onUpdateAvailable) {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+  if (window.location.protocol !== "https:" && window.location.hostname !== "localhost") return;
+
+  navigator.serviceWorker.getRegistration().then((existing) => {
+    const handle = (reg) => {
+      if (!reg) return;
+      if (reg.waiting) onUpdateAvailable?.(reg);
+      reg.addEventListener("updatefound", () => {
+        const installing = reg.installing;
+        if (!installing) return;
+        installing.addEventListener("statechange", () => {
+          if (installing.state === "installed" && navigator.serviceWorker.controller) {
+            onUpdateAvailable?.(reg);
+          }
+        });
+      });
+      reg.update().catch(() => {});
+    };
+    if (existing) handle(existing);
+    else navigator.serviceWorker.register("/sw.js").then(handle).catch(() => {});
+  }).catch(() => {});
+
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (reloaded) return;
+    reloaded = true;
+    window.location.reload();
+  });
 }
 
 /* ─── CSS ───────────────────────────────────────────────────────────────── */
@@ -183,10 +332,8 @@ const GLOBAL_CSS = `
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body, #root {
     width: 100%; height: 100%;
-    overflow: hidden;
-    background: #0a0a0f;
-    -webkit-text-size-adjust: 100%;
-    text-size-adjust: 100%;
+    overflow: hidden; background: #0a0a0f;
+    -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
     -webkit-tap-highlight-color: transparent;
   }
   body { overscroll-behavior: none; -webkit-overflow-scrolling: touch; }
@@ -199,11 +346,7 @@ const GLOBAL_CSS = `
   }
   body.theme-light .leaflet-container { background: #f5f3ee !important; }
 
-  .leaflet-control-zoom {
-    border: none !important;
-    box-shadow: none !important;
-    margin: 0 !important;
-  }
+  .leaflet-control-zoom { border: none !important; box-shadow: none !important; margin: 0 !important; }
   .leaflet-left .leaflet-control-zoom { margin-left: 14px !important; }
   .leaflet-control-zoom a {
     background: rgba(11,10,17,0.92) !important;
@@ -212,12 +355,9 @@ const GLOBAL_CSS = `
     width: 44px !important; height: 44px !important; line-height: 44px !important;
     font-size: 20px !important;
     display: flex !important; align-items: center !important; justify-content: center !important;
-    backdrop-filter: blur(10px) !important;
-    -webkit-backdrop-filter: blur(10px) !important;
+    backdrop-filter: blur(10px) !important; -webkit-backdrop-filter: blur(10px) !important;
     transition: all 0.15s !important;
-    border-radius: 6px !important;
-    margin-bottom: 6px !important;
-    font-weight: 400 !important;
+    border-radius: 6px !important; margin-bottom: 6px !important;
   }
   .leaflet-control-zoom-in { border-radius: 6px !important; }
   .leaflet-control-zoom-out { border-radius: 6px !important; margin-bottom: 0 !important; }
@@ -225,25 +365,21 @@ const GLOBAL_CSS = `
   .leaflet-control-attribution {
     background: rgba(10,10,15,0.7) !important;
     color: rgba(255,255,255,0.35) !important;
-    font-size: 9px !important;
-    padding: 2px 6px !important;
+    font-size: 9px !important; padding: 2px 6px !important;
   }
   .leaflet-control-attribution a { color: rgba(255,255,255,0.5) !important; }
   .leaflet-popup-content-wrapper, .leaflet-popup-tip-container { display: none !important; }
 
-  /* Light theme overrides — much higher contrast */
   body.theme-light .leaflet-control-zoom a {
     background: rgba(252,250,247,0.96) !important;
     color: #1a1814 !important;
     border-color: rgba(0,0,0,0.18) !important;
   }
   body.theme-light .leaflet-control-zoom a:hover {
-    background: rgba(232,228,217,0.98) !important;
-    color: #000 !important;
+    background: rgba(232,228,217,0.98) !important; color: #000 !important;
   }
   body.theme-light .leaflet-control-attribution {
-    background: rgba(252,250,247,0.85) !important;
-    color: rgba(26,24,20,0.65) !important;
+    background: rgba(252,250,247,0.85) !important; color: rgba(26,24,20,0.65) !important;
   }
   body.theme-light .leaflet-control-attribution a { color: rgba(26,24,20,0.85) !important; }
 
@@ -255,8 +391,7 @@ const GLOBAL_CSS = `
   @keyframes popIn      { 0%{opacity:0;transform:scale(0.95)} 100%{opacity:1;transform:scale(1)} }
   @keyframes slideDown  { from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
   @keyframes pulseRing  { 0%{transform:scale(1);opacity:0.7} 100%{transform:scale(2.4);opacity:0} }
-  @keyframes plantBounce { 0%{transform:scale(1)} 40%{transform:scale(1.18)} 70%{transform:scale(0.93)} 100%{transform:scale(1)} }
-  @keyframes shimmer    { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+  @keyframes slideUpIn  { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
 
   textarea { resize: none; }
   ::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -277,17 +412,14 @@ const GLOBAL_CSS = `
     padding: 8px 16px; border-radius: 20px; cursor: pointer; border: 1.5px solid;
     font-family: 'Lora', serif; font-size: 13px; letter-spacing: 0.1em;
     transition: all 0.15s; white-space: nowrap; -webkit-tap-highlight-color: transparent;
-    min-height: 38px; display: inline-flex; align-items: center;
-    font-weight: 500;
+    min-height: 38px; display: inline-flex; align-items: center; font-weight: 500;
   }
 
   .yr-overlay {
     position: fixed; inset: 0;
     background: rgba(0,0,0,0.66); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
     display: flex; align-items: center; justify-content: center;
-    animation: fadeIn 0.2s ease; z-index: 200;
-    padding: 16px;
-    overflow-y: auto;
+    animation: fadeIn 0.2s ease; z-index: 200; padding: 16px; overflow-y: auto;
   }
   .yr-modal { animation: fadeUp 0.28s ease forwards; }
 
@@ -314,8 +446,7 @@ const GLOBAL_CSS = `
     padding: 11px 36px 11px 14px;
     color: #ffffff; font-family: 'Lora', serif; letter-spacing: 0.06em;
     outline: none; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-    transition: border-color 0.2s;
-    font-size: 16px; /* Prevents iOS zoom on focus */
+    transition: border-color 0.2s; font-size: 16px;
   }
   .yr-search-input::placeholder { color: rgba(232,228,217,0.55); font-style: italic; }
   .yr-search-input:focus { border-color: rgba(192,132,252,0.65); }
@@ -327,22 +458,13 @@ const GLOBAL_CSS = `
     color: rgba(232,228,217,0.92); letter-spacing: 0.04em; transition: background 0.12s;
     min-height: 44px; display: flex; align-items: center;
   }
-  .yr-search-result:hover,
-  .yr-search-result:active { background: rgba(192,132,252,0.14); color: #c084fc; }
+  .yr-search-result:hover, .yr-search-result:active { background: rgba(192,132,252,0.14); color: #c084fc; }
   .yr-search-result:last-child { border-bottom: none; }
 
-  body.theme-light .yr-search-input {
-    background: rgba(252,250,247,0.97);
-    color: #0a0908;
-    border-color: rgba(0,0,0,0.2);
-  }
+  body.theme-light .yr-search-input { background: rgba(252,250,247,0.97); color: #0a0908; border-color: rgba(0,0,0,0.2); }
   body.theme-light .yr-search-input::placeholder { color: rgba(26,24,20,0.55); }
   body.theme-light .yr-search-input:focus { border-color: rgba(109,40,217,0.65); }
-  body.theme-light .yr-search-result {
-    background: rgba(252,250,247,0.98);
-    color: #0a0908;
-    border-bottom-color: rgba(0,0,0,0.08);
-  }
+  body.theme-light .yr-search-result { background: rgba(252,250,247,0.98); color: #0a0908; border-bottom-color: rgba(0,0,0,0.08); }
   body.theme-light .yr-search-result:hover { background: rgba(109,40,217,0.1); color: #6d28d9; }
 
   .yr-found-popup {
@@ -354,8 +476,7 @@ const GLOBAL_CSS = `
     color: #22d3ee; letter-spacing: 0.14em; font-style: italic;
     animation: fadeUp 0.3s ease; z-index: 600;
     box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-    transform: translate(-50%, calc(-100% - 20px));
-    font-weight: 600;
+    transform: translate(-50%, calc(-100% - 20px)); font-weight: 600;
   }
   .yr-found-popup::after {
     content: ''; position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
@@ -366,28 +487,21 @@ const GLOBAL_CSS = `
 
   .yr-pin-card { position: fixed; z-index: 300; animation: popIn 0.25s ease; }
 
-  /* Safe area insets for notched phones */
-  .yr-safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
-  .yr-safe-top { padding-top: env(safe-area-inset-top, 0px); }
-
-  /* Mobile-specific tweaks */
   @media screen and (max-width: 768px) {
     .yr-tool-btn { width: 46px; height: 46px; font-size: 17px; border-radius: 10px; }
     .leaflet-control-zoom a { width: 46px !important; height: 46px !important; line-height: 46px !important; font-size: 22px !important; border-radius: 10px !important; }
     .leaflet-left .leaflet-control-zoom { margin-left: 10px !important; }
     .yr-mood-chip { padding: 9px 16px; font-size: 13.5px; min-height: 40px; }
   }
-
-  /* Very small screens */
   @media screen and (max-width: 380px) {
     .yr-tool-btn { width: 44px; height: 44px; }
     .leaflet-control-zoom a { width: 44px !important; height: 44px !important; line-height: 44px !important; }
   }
 
-  input, textarea { font-size: 16px !important; } /* iOS no-zoom */
+  input, textarea { font-size: 16px !important; }
 `;
 
-/* ─── Theme tokens — much higher contrast ──────────────────────────────── */
+/* ─── Theme tokens ──────────────────────────────────────────────────────── */
 function useTheme(isDark) {
   return {
     panelBg:      isDark ? "rgba(11,10,17,0.97)"     : "rgba(253,251,247,0.99)",
@@ -402,7 +516,7 @@ function useTheme(isDark) {
     headerGrad:   isDark
       ? "linear-gradient(to bottom,rgba(10,10,15,0.95) 0%,rgba(10,10,15,0.5) 60%,transparent 100%)"
       : "linear-gradient(to bottom,rgba(253,251,247,0.97) 0%,rgba(253,251,247,0.5) 60%,transparent 100%)",
-    legendChipBg: isDark ? "rgba(11,10,17,0.85)"    : "rgba(253,251,247,0.96)",
+    legendChipBg:     isDark ? "rgba(11,10,17,0.85)"    : "rgba(253,251,247,0.96)",
     legendChipBorder: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.14)",
     moods:        getMoods(isDark),
     isDark,
@@ -410,25 +524,14 @@ function useTheme(isDark) {
 }
 
 /* ─── Sub-components ────────────────────────────────────────────────────── */
-
 function Overlay({ zIndex = 200, onClose, children }) {
-  const ref = useRef(null);
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    // Lock body scroll while overlay is open
-    const prevOverflow = document.body.style.overflow;
+    const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prevOverflow; };
+    return () => { document.body.style.overflow = prev; };
   }, []);
-
   return (
-    <div
-      ref={ref}
-      className="yr-overlay"
-      style={{ zIndex }}
-      onClick={(e) => e.target === e.currentTarget && onClose?.()}
-    >
+    <div className="yr-overlay" style={{ zIndex }} onClick={(e) => e.target === e.currentTarget && onClose?.()}>
       {children}
     </div>
   );
@@ -436,14 +539,8 @@ function Overlay({ zIndex = 200, onClose, children }) {
 
 function ToolBtn({ id, title, onClick, style, children, className = "" }) {
   return (
-    <button
-      id={id}
-      className={`yr-tool-btn ${className}`}
-      title={title}
-      aria-label={title}
-      style={style}
-      onClick={() => { haptic("light"); onClick?.(); }}
-    >
+    <button id={id} className={`yr-tool-btn ${className}`} title={title} aria-label={title} style={style}
+      onClick={() => { haptic("light"); onClick?.(); }}>
       {children}
     </button>
   );
@@ -458,16 +555,14 @@ function Toast({ msg, isDark }) {
       background: isDark ? "rgba(11,10,17,0.96)" : "rgba(253,251,247,0.98)",
       backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
       border: `1px solid ${isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.14)"}`,
-      borderRadius: 6,
-      padding: "10px 22px", zIndex: 600,
+      borderRadius: 6, padding: "10px 22px", zIndex: 600,
       fontFamily: "'Lora',serif", fontSize: 13,
       color: isDark ? "rgba(232,228,217,0.95)" : "#0a0908",
       letterSpacing: "0.14em", fontStyle: "italic",
       whiteSpace: "nowrap", pointerEvents: "none",
       animation: "toastIn 0.25s ease",
       boxShadow: isDark ? "0 4px 24px rgba(0,0,0,0.5)" : "0 4px 24px rgba(0,0,0,0.18)",
-      maxWidth: "calc(100vw - 40px)",
-      overflow: "hidden", textOverflow: "ellipsis",
+      maxWidth: "calc(100vw - 40px)", overflow: "hidden", textOverflow: "ellipsis",
     }}>{msg}</div>
   );
 }
@@ -477,45 +572,33 @@ function WritingModal({ coords, onSave, onCancel, isDark }) {
   const T = useTheme(isDark);
   const [draft, setDraft] = useState({ title: "", body: "", mood: "wonder", customMood: "" });
   const mood = T.moods.find((m) => m.key === draft.mood) ?? T.moods[0];
-
-  const valid = draft.title.trim() && draft.body.trim() &&
-    (draft.mood !== "other" || draft.customMood.trim());
+  const valid = draft.title.trim() && draft.body.trim() && (draft.mood !== "other" || draft.customMood.trim());
 
   const handleSave = () => {
     if (!valid) return;
-    haptic("success");
-    playSound("plant");
-    const moodLabel = draft.mood === "other"
-      ? draft.customMood.trim()
-      : mood.label;
+    haptic("success"); playSound("plant");
+    const moodLabel = draft.mood === "other" ? draft.customMood.trim() : mood.label;
     onSave({
       id: Date.now().toString(),
       lat: coords.lat, lng: coords.lng,
       title: draft.title.trim(), body: draft.body.trim(),
       mood: draft.mood, customMood: draft.mood === "other" ? draft.customMood.trim() : "",
-      moodLabel,
-      moodColor: mood.color,
+      moodLabel, moodColor: mood.color,
       date: new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
       createdAt: Date.now(),
+      appVersion: APP_VERSION,
     });
   };
 
   return (
     <Overlay zIndex={200} onClose={onCancel}>
-      <div
-        className="yr-modal"
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: 480, maxWidth: "100%",
-          maxHeight: "calc(100dvh - 40px)", overflowY: "auto",
-          background: T.panelBg, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
-          border: `1px solid ${mood.color}40`,
-          borderTop: `2px solid ${mood.color}`,
-          borderRadius: "0 0 8px 8px",
-          padding: "26px 26px 22px",
-          boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.7)" : "0 24px 64px rgba(0,0,0,0.22)",
-        }}
-      >
+      <div className="yr-modal" onClick={(e) => e.stopPropagation()} style={{
+        width: 480, maxWidth: "100%", maxHeight: "calc(100dvh - 40px)", overflowY: "auto",
+        background: T.panelBg, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+        border: `1px solid ${mood.color}40`, borderTop: `2px solid ${mood.color}`,
+        borderRadius: "0 0 8px 8px", padding: "26px 26px 22px",
+        boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.7)" : "0 24px 64px rgba(0,0,0,0.22)",
+      }}>
         <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 500, color: T.textPrimary, letterSpacing: "0.02em", marginBottom: 4 }}>
           plant a thought here
         </div>
@@ -524,13 +607,10 @@ function WritingModal({ coords, onSave, onCancel, isDark }) {
             {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
           </div>
         )}
-
         <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.22em", textTransform: "uppercase", marginBottom: 10, fontWeight: 600 }}>mood</div>
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: draft.mood === "other" ? 10 : 18 }}>
           {T.moods.map((m) => (
-            <button
-              key={m.key}
-              className="yr-mood-chip"
+            <button key={m.key} className="yr-mood-chip"
               onClick={() => { haptic("light"); setDraft((d) => ({ ...d, mood: m.key })); }}
               style={{
                 background:  draft.mood === m.key ? `${m.color}22` : "transparent",
@@ -539,17 +619,11 @@ function WritingModal({ coords, onSave, onCancel, isDark }) {
                 fontWeight:  draft.mood === m.key ? 700 : 500,
                 boxShadow:   draft.mood === m.key ? `0 0 12px ${m.color}50` : "none",
               }}
-            >
-              {m.label}
-            </button>
+            >{m.label}</button>
           ))}
         </div>
-
         {draft.mood === "other" && (
-          <input
-            autoFocus
-            placeholder="how are you feeling?"
-            value={draft.customMood}
+          <input autoFocus placeholder="how are you feeling?" value={draft.customMood}
             onChange={(e) => setDraft((d) => ({ ...d, customMood: e.target.value }))}
             style={{
               width: "100%", background: "transparent", border: "none",
@@ -560,11 +634,7 @@ function WritingModal({ coords, onSave, onCancel, isDark }) {
             }}
           />
         )}
-
-        <input
-          autoFocus={draft.mood !== "other"}
-          placeholder="Give this moment a name…"
-          value={draft.title}
+        <input autoFocus={draft.mood !== "other"} placeholder="Give this moment a name…" value={draft.title}
           onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
           style={{
             width: "100%", background: "transparent", border: "none",
@@ -574,11 +644,7 @@ function WritingModal({ coords, onSave, onCancel, isDark }) {
             outline: "none", letterSpacing: "0.04em",
           }}
         />
-
-        <textarea
-          rows={5}
-          placeholder="What do you want to remember about this place?"
-          value={draft.body}
+        <textarea rows={5} placeholder="What do you want to remember about this place?" value={draft.body}
           onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))}
           style={{
             width: "100%",
@@ -590,20 +656,11 @@ function WritingModal({ coords, onSave, onCancel, isDark }) {
             outline: "none", letterSpacing: "0.02em",
           }}
         />
-
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button
-            onClick={() => { haptic("light"); onCancel(); }}
-            style={{
-              background: "transparent", border: `1px solid ${T.panelBorder}`,
-              color: T.textSec, padding: "10px 20px", borderRadius: 6,
-              cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.1em",
-              minHeight: 44, fontWeight: 500,
-            }}
+          <button onClick={() => { haptic("light"); onCancel(); }}
+            style={{ background: "transparent", border: `1px solid ${T.panelBorder}`, color: T.textSec, padding: "10px 20px", borderRadius: 6, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.1em", minHeight: 44, fontWeight: 500 }}
           >discard</button>
-          <button
-            onClick={handleSave}
-            disabled={!valid}
+          <button onClick={handleSave} disabled={!valid}
             style={{
               background: valid ? `${mood.color}28` : "transparent",
               border: `1px solid ${valid ? mood.color : T.panelBorder}`,
@@ -626,21 +683,15 @@ function ForgetModal({ pin, onConfirm, onCancel, isDark }) {
   const moodColor = pin.moodColor || getMoodByKey(pin.mood, isDark).color;
   const moodLabel = pin.moodLabel || getMoodByKey(pin.mood, isDark).label;
 
-  const handleConfirm = () => {
-    haptic("heavy");
-    playSound("forget");
-    onConfirm();
-  };
+  const handleConfirm = () => { haptic("heavy"); playSound("forget"); onConfirm(); };
 
   return (
     <Overlay zIndex={500} onClose={onCancel}>
       <div className="yr-modal" onClick={(e) => e.stopPropagation()} style={{
         width: 400, maxWidth: "100%",
         background: T.panelBg, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
-        border: "1px solid rgba(220,38,38,0.22)",
-        borderTop: "2px solid rgba(220,38,38,0.6)",
-        borderRadius: "0 0 8px 8px",
-        padding: "30px 28px 26px", textAlign: "center",
+        border: "1px solid rgba(220,38,38,0.22)", borderTop: "2px solid rgba(220,38,38,0.6)",
+        borderRadius: "0 0 8px 8px", padding: "30px 28px 26px", textAlign: "center",
         boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.7)" : "0 24px 64px rgba(0,0,0,0.22)",
       }}>
         <div style={{ fontSize: 32, marginBottom: 16, color: moodColor, filter: `drop-shadow(0 0 12px ${moodColor}66)`, opacity: 0.7 }}>◈</div>
@@ -676,21 +727,12 @@ function ExportImportModal({ pins, onImport, onClose, isDark }) {
 
   const handleExport = () => {
     haptic("medium");
-    const data = JSON.stringify({
-      app: "yearning",
-      version: 1,
-      exported: new Date().toISOString(),
-      count: pins.length,
-      pins,
-    }, null, 2);
+    const data = JSON.stringify({ app: "yearning", version: APP_VERSION, exported: new Date().toISOString(), count: pins.length, pins }, null, 2);
     const blob = new Blob([data], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url;
-    a.download = `yearning-memories-${new Date().toISOString().split("T")[0]}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    a.href = url; a.download = `yearning-memories-${new Date().toISOString().split("T")[0]}.json`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
@@ -705,11 +747,9 @@ function ExportImportModal({ pins, onImport, onClose, isDark }) {
         const parsed = JSON.parse(text);
         const arr = parsed.pins ?? parsed;
         if (!Array.isArray(arr)) throw new Error("Invalid format");
-        setPendingCount(arr.length);
-        setImportError("");
+        setPendingCount(arr.length); setImportError("");
       } catch {
-        setImportError("Invalid file. Please use a Yearning export file.");
-        setPendingCount(0);
+        setImportError("Invalid file. Please use a Yearning export file."); setPendingCount(0);
       }
     };
     reader.readAsText(file);
@@ -720,11 +760,8 @@ function ExportImportModal({ pins, onImport, onClose, isDark }) {
       const parsed = JSON.parse(importText);
       const importedPins = parsed.pins ?? parsed;
       if (!Array.isArray(importedPins)) throw new Error("Invalid format");
-      importedPins.forEach((p) => {
-        if (typeof p.lat !== "number" || typeof p.lng !== "number") throw new Error("Invalid pin data");
-      });
-      haptic("success");
-      playSound("plant");
+      importedPins.forEach((p) => { if (typeof p.lat !== "number" || typeof p.lng !== "number") throw new Error("Invalid pin data"); });
+      haptic("success"); playSound("plant");
       onImport(importedPins);
       setImportSuccess(true);
       setTimeout(() => { setImportSuccess(false); onClose(); }, 1500);
@@ -738,8 +775,7 @@ function ExportImportModal({ pins, onImport, onClose, isDark }) {
   return (
     <Overlay zIndex={300} onClose={onClose}>
       <div className="yr-modal" onClick={(e) => e.stopPropagation()} style={{
-        width: 440, maxWidth: "100%",
-        maxHeight: "calc(100dvh - 40px)", overflowY: "auto",
+        width: 440, maxWidth: "100%", maxHeight: "calc(100dvh - 40px)", overflowY: "auto",
         background: T.panelBg, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
         border: `1px solid ${accent}33`, borderTop: `2px solid ${accent}`,
         borderRadius: "0 0 8px 8px", padding: "28px 26px 24px",
@@ -747,11 +783,10 @@ function ExportImportModal({ pins, onImport, onClose, isDark }) {
         position: "relative",
       }}>
         <button onClick={() => { haptic("light"); onClose(); }} style={{ position: "absolute", top: 14, right: 16, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 4 }} aria-label="Close">×</button>
-
         <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 10, fontWeight: 600 }}>memories</div>
         <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, color: T.textPrimary, marginBottom: 20, fontWeight: 500 }}>export &amp; import</div>
 
-        <div style={{ display: "flex", gap: 0, marginBottom: 24, border: `1px solid ${T.panelBorder}`, borderRadius: 6, overflow: "hidden" }}>
+        <div style={{ display: "flex", gap: 0, marginBottom: 20, border: `1px solid ${T.panelBorder}`, borderRadius: 6, overflow: "hidden" }}>
           {["export", "import"].map((t) => (
             <button key={t} onClick={() => { haptic("light"); setTab(t); setImportError(""); }} style={{
               flex: 1, padding: "11px 0", cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 12, letterSpacing: "0.2em", textTransform: "uppercase", transition: "all 0.18s", border: "none",
@@ -761,6 +796,16 @@ function ExportImportModal({ pins, onImport, onClose, isDark }) {
               borderBottom: tab === t ? `2px solid ${accent}` : "2px solid transparent",
             }}>{t}</button>
           ))}
+        </div>
+
+        <div style={{
+          background: isDark ? "rgba(34,211,238,0.07)" : "rgba(14,116,144,0.06)",
+          border: `1px solid ${isDark ? "rgba(34,211,238,0.22)" : "rgba(14,116,144,0.22)"}`,
+          borderLeft: `3px solid ${isDark ? "rgba(34,211,238,0.7)" : "rgba(14,116,144,0.7)"}`,
+          borderRadius: "0 6px 6px 0", padding: "10px 14px", marginBottom: 20,
+          fontFamily: "'Lora',serif", fontSize: 12, color: T.textSec, lineHeight: 1.65, fontStyle: "italic",
+        }}>
+          Your memories are stored on this device and survive every app update — but exporting a backup is always a good idea.
         </div>
 
         {tab === "export" ? (
@@ -781,18 +826,14 @@ function ExportImportModal({ pins, onImport, onClose, isDark }) {
               border: `1px solid ${pins.length > 0 ? accent : T.panelBorder}`,
               color: pins.length > 0 ? accent : T.textFaint,
               fontFamily: "'Lora',serif", fontSize: 14, letterSpacing: "0.14em",
-              cursor: pins.length > 0 ? "pointer" : "not-allowed", fontWeight: 700,
-              minHeight: 48,
-            }}>
-              ↓ download memories
-            </button>
+              cursor: pins.length > 0 ? "pointer" : "not-allowed", fontWeight: 700, minHeight: 48,
+            }}>↓ download memories</button>
           </div>
         ) : (
           <div>
             <div style={{ fontFamily: "'Lora',serif", fontSize: 14, color: T.textSec, lineHeight: 1.8, fontStyle: "italic", marginBottom: 18 }}>
               Upload a Yearning export file to restore or merge your memories. Existing memories will be preserved (duplicates skipped).
             </div>
-
             <input ref={fileRef} type="file" accept=".json,application/json" onChange={handleFileImport} style={{ display: "none" }} />
             <button onClick={() => fileRef.current?.click()} style={{
               width: "100%", padding: "13px 0", borderRadius: 6, marginBottom: 12,
@@ -800,10 +841,7 @@ function ExportImportModal({ pins, onImport, onClose, isDark }) {
               border: `1px dashed ${T.panelBorder}`,
               color: T.textSec, fontFamily: "'Lora',serif", fontSize: 13.5, letterSpacing: "0.1em",
               cursor: "pointer", minHeight: 48, fontWeight: 500,
-            }}>
-              ↑ choose file
-            </button>
-
+            }}>↑ choose file</button>
             {importText && !importError && !importSuccess && pendingCount > 0 && (
               <div style={{ marginBottom: 12 }}>
                 <div style={{ fontFamily: "'Lora',serif", fontSize: 12, color: T.textSec, fontStyle: "italic", marginBottom: 10 }}>
@@ -814,9 +852,7 @@ function ExportImportModal({ pins, onImport, onClose, isDark }) {
                   background: `${accent}22`, border: `1px solid ${accent}`,
                   color: accent, fontFamily: "'Lora',serif", fontSize: 14, letterSpacing: "0.14em",
                   cursor: "pointer", fontWeight: 700, minHeight: 48,
-                }}>
-                  ✦ import memories
-                </button>
+                }}>✦ import memories</button>
               </div>
             )}
             {importError && (
@@ -858,11 +894,9 @@ function TipJarModal({ onClose, isDark }) {
           {[{ l: "☕ $3", s: "a coffee" }, { l: "☕☕ $6", s: "two coffees" }, { l: "✦ $12", s: "you're amazing" }].map((t) => (
             <a key={t.l} href={KOFI_URL} target="_blank" rel="noopener noreferrer" style={{
               flex: 1, textDecoration: "none",
-              background: goldBg,
-              border: `1px solid ${goldBorder}`,
+              background: goldBg, border: `1px solid ${goldBorder}`,
               borderRadius: 6, padding: "11px 6px",
-              display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
-              minHeight: 56,
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 3, minHeight: 56,
             }}>
               <div style={{ fontFamily: "'Lora',serif", fontSize: 13.5, color: goldText, letterSpacing: "0.06em", fontWeight: 700 }}>{t.l}</div>
               <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: goldText, opacity: 0.75, letterSpacing: "0.14em", fontStyle: "italic" }}>{t.s}</div>
@@ -871,11 +905,9 @@ function TipJarModal({ onClose, isDark }) {
         </div>
         <a href={KOFI_URL} target="_blank" rel="noopener noreferrer" style={{
           display: "block", textDecoration: "none",
-          background: goldBg,
-          border: `1px solid ${goldBorder}`,
+          background: goldBg, border: `1px solid ${goldBorder}`,
           borderRadius: 6, padding: 12,
-          fontFamily: "'Lora',serif", fontSize: 13.5,
-          color: goldText,
+          fontFamily: "'Lora',serif", fontSize: 13.5, color: goldText,
           letterSpacing: "0.14em", fontWeight: 700,
         }}>support yearning on ko-fi →</a>
         <div style={{ marginTop: 14, fontFamily: "'Lora',serif", fontSize: 11, color: T.textMuted, letterSpacing: "0.12em", fontStyle: "italic" }}>
@@ -887,7 +919,7 @@ function TipJarModal({ onClose, isDark }) {
 }
 
 /* ─── Help modal ────────────────────────────────────────────────────────── */
-function HelpModal({ onClose, isDark, onEnableNotifications, notifPermission }) {
+function HelpModal({ onClose, isDark, onEnableNotifications, notifPermission, onShowChangelog, pinCount }) {
   const T = useTheme(isDark);
   const cyan = isDark ? "#22d3ee" : "#0e7490";
   const purple = isDark ? "#c084fc" : "#6d28d9";
@@ -910,8 +942,7 @@ function HelpModal({ onClose, isDark, onEnableNotifications, notifPermission }) 
       background: c === "cyan" ? (isDark ? "rgba(8,145,178,0.18)" : "rgba(8,145,178,0.12)") : (isDark ? "rgba(22,163,74,0.16)" : "rgba(22,163,74,0.1)"),
       color: c === "cyan" ? cyan : green,
       padding: "2px 8px", borderRadius: 4, fontSize: 11.5,
-      fontStyle: "normal", fontFamily: "'Lora',serif", letterSpacing: "0.04em",
-      fontWeight: 600,
+      fontStyle: "normal", fontFamily: "'Lora',serif", letterSpacing: "0.04em", fontWeight: 600,
     }}>{children}</span>
   );
 
@@ -962,33 +993,20 @@ function HelpModal({ onClose, isDark, onEnableNotifications, notifPermission }) 
         <div style={{ borderTop: `1px solid ${T.panelBorder}`, margin: "20px 0 14px" }} />
         <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.26em", textTransform: "uppercase", marginBottom: 8, fontWeight: 600 }}>location reminders</div>
         <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: T.textSec, fontStyle: "italic", marginBottom: 12, lineHeight: 1.7 }}>
-         When enabled, Yearning softly nudges you when you arrive somewhere new or somewhere you have not planted a memory yet.
+          When enabled, yearning quietly reminds you when you arrive somewhere new — within {NEARBY_RADIUS_KM}km of where you've been before, or in a place you haven't planted yet.
         </div>
         <button
           onClick={onEnableNotifications}
           disabled={notifPermission === "granted" || notifPermission === "denied"}
           style={{
             width: "100%", padding: "11px 0", borderRadius: 6, marginBottom: 14,
-            background: notifPermission === "granted"
-              ? (isDark ? "rgba(22,163,74,0.16)" : "rgba(22,163,74,0.1)")
-              : notifPermission === "denied"
-              ? "transparent"
-              : `${cyan}22`,
-            border: `1px solid ${
-              notifPermission === "granted"
-                ? (isDark ? "rgba(134,239,172,0.5)" : "rgba(22,163,74,0.5)")
-                : notifPermission === "denied"
-                ? T.panelBorder
-                : cyan
-            }`,
-            color: notifPermission === "granted"
-              ? green
-              : notifPermission === "denied"
-              ? T.textFaint
-              : cyan,
+            background: notifPermission === "granted" ? (isDark ? "rgba(22,163,74,0.16)" : "rgba(22,163,74,0.1)")
+              : notifPermission === "denied" ? "transparent" : `${cyan}22`,
+            border: `1px solid ${notifPermission === "granted" ? (isDark ? "rgba(134,239,172,0.5)" : "rgba(22,163,74,0.5)")
+              : notifPermission === "denied" ? T.panelBorder : cyan}`,
+            color: notifPermission === "granted" ? green : notifPermission === "denied" ? T.textFaint : cyan,
             fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.14em", fontWeight: 700,
-            cursor: notifPermission === "default" ? "pointer" : "default",
-            minHeight: 44,
+            cursor: notifPermission === "default" ? "pointer" : "default", minHeight: 44,
           }}
         >
           {notifPermission === "granted" ? "✓ notifications enabled" :
@@ -1012,11 +1030,149 @@ function HelpModal({ onClose, isDark, onEnableNotifications, notifPermission }) 
             ))}
           </div>
         ))}
-        <div style={{ marginTop: 14, fontFamily: "'Lora',serif", fontSize: 11.5, color: T.textMuted, letterSpacing: "0.1em", fontStyle: "italic", textAlign: "center" }}>
-          no download needed · your data stays on your device
+
+        <div style={{
+          marginTop: 12,
+          background: isDark ? "rgba(168,85,247,0.08)" : "rgba(109,40,217,0.06)",
+          border: `1px solid ${isDark ? "rgba(168,85,247,0.25)" : "rgba(109,40,217,0.2)"}`,
+          borderLeft: `3px solid ${isDark ? "rgba(168,85,247,0.7)" : "rgba(109,40,217,0.55)"}`,
+          borderRadius: "0 6px 6px 0", padding: "12px 14px",
+          fontFamily: "'Lora',serif", fontSize: 12.5, color: T.textSec, lineHeight: 1.7, fontStyle: "italic",
+        }}>
+          <strong style={{ color: T.textPrimary, fontWeight: 700, fontStyle: "normal" }}>Your memories are safe across updates.</strong>{" "}
+          {pinCount > 0 ? `All ${pinCount} of your memories will persist` : "All your memories will persist"} every time yearning updates — no resets, no logins, ever.
+        </div>
+
+        <div style={{ marginTop: 20, paddingTop: 14, borderTop: `1px solid ${T.panelBorder}`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <button onClick={onShowChangelog} style={{
+            background: "transparent", border: `1px solid ${T.panelBorder}`, color: T.textSec,
+            padding: "8px 14px", borderRadius: 5, cursor: "pointer",
+            fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.14em", fontWeight: 600, minHeight: 36,
+          }}>what's new</button>
+          <span style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.18em", fontWeight: 500 }}>
+            yearning v{APP_VERSION}
+          </span>
         </div>
       </div>
     </Overlay>
+  );
+}
+
+/* ─── What's New modal ──────────────────────────────────────────────────── */
+function WhatsNewModal({ entries, isFirstAcknowledgement, onClose, isDark, pinCount }) {
+  const T = useTheme(isDark);
+  const purple = isDark ? "#a855f7" : "#6d28d9";
+
+  return (
+    <Overlay zIndex={350} onClose={onClose}>
+      <div className="yr-modal" onClick={(e) => e.stopPropagation()} style={{
+        width: 480, maxWidth: "100%", maxHeight: "calc(100dvh - 40px)", overflowY: "auto",
+        background: T.panelBg, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+        border: `1px solid ${purple}33`, borderTop: `2px solid ${purple}`,
+        borderRadius: "0 0 8px 8px", padding: "30px 28px 26px", position: "relative",
+        boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.7)" : "0 24px 64px rgba(0,0,0,0.22)",
+        animation: "slideUpIn 0.4s ease",
+      }}>
+        <button onClick={() => { haptic("light"); onClose(); }} style={{ position: "absolute", top: 14, right: 16, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 4 }} aria-label="Close">×</button>
+
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: purple, letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 10, fontWeight: 700 }}>
+          {isFirstAcknowledgement ? "yearning · updated" : "what's new"}
+        </div>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 24, fontWeight: 500, color: T.textPrimary, marginBottom: 6, lineHeight: 1.2 }}>
+          {entries[0]?.title || `Version ${APP_VERSION}`}
+        </div>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 12.5, color: T.textMuted, letterSpacing: "0.1em", marginBottom: 20, fontStyle: "italic", fontWeight: 500 }}>
+          v{entries[0]?.version || APP_VERSION} {entries[0]?.date ? `· ${entries[0].date}` : ""}
+        </div>
+
+        {isFirstAcknowledgement && pinCount > 0 && (
+          <div style={{
+            display: "flex", alignItems: "flex-start", gap: 12,
+            background: isDark ? "rgba(34,211,238,0.08)" : "rgba(14,116,144,0.07)",
+            border: `1px solid ${isDark ? "rgba(34,211,238,0.3)" : "rgba(14,116,144,0.3)"}`,
+            borderLeft: `3px solid ${isDark ? "rgba(34,211,238,0.8)" : "rgba(14,116,144,0.75)"}`,
+            borderRadius: "0 6px 6px 0", padding: "12px 14px", marginBottom: 18,
+          }}>
+            <div style={{ fontSize: 16, color: isDark ? "#22d3ee" : "#0e7490", marginTop: 1, flexShrink: 0 }}>◉</div>
+            <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: T.textSec, lineHeight: 1.7 }}>
+              <strong style={{ color: T.textPrimary, fontWeight: 700 }}>All {pinCount} {pinCount === 1 ? "memory is" : "memories are"} safe.</strong>{" "}
+              <span style={{ fontStyle: "italic" }}>Your data stayed exactly where you left it — yearning updates never erase your memories.</span>
+            </div>
+          </div>
+        )}
+
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.26em", textTransform: "uppercase", marginBottom: 12, fontWeight: 600 }}>
+          {entries.length > 1 ? "what changed since you were last here" : "what's new"}
+        </div>
+
+        {entries.slice(0, 3).map((entry, idx) => (
+          <div key={entry.version} style={{ marginBottom: idx < entries.length - 1 ? 18 : 6 }}>
+            {entries.length > 1 && (
+              <div style={{ fontFamily: "'Lora',serif", fontSize: 11, color: purple, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 8, fontWeight: 700 }}>
+                v{entry.version} {entry.date && <span style={{ color: T.textMuted, fontWeight: 500 }}>· {entry.date}</span>}
+              </div>
+            )}
+            {entry.notes.map((note, i) => (
+              <div key={i} style={{ display: "flex", gap: 10, marginBottom: 8, alignItems: "flex-start" }}>
+                <div style={{ width: 4, height: 4, borderRadius: "50%", background: purple, marginTop: 8, flexShrink: 0, opacity: 0.85 }} />
+                <div style={{ fontFamily: "'Lora',serif", fontSize: 13.5, color: T.textSec, lineHeight: 1.7, fontStyle: "italic" }}>{note}</div>
+              </div>
+            ))}
+          </div>
+        ))}
+
+        <div style={{ marginTop: 22, display: "flex", gap: 10, justifyContent: "flex-end", alignItems: "center" }}>
+          <span style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.16em", marginRight: "auto", fontWeight: 500 }}>v{APP_VERSION}</span>
+          <button onClick={() => { haptic("medium"); onClose(); }} style={{
+            background: `${purple}28`, border: `1px solid ${purple}`,
+            color: purple, padding: "10px 22px", borderRadius: 6, cursor: "pointer",
+            fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.14em", minHeight: 44, fontWeight: 700,
+          }}>continue ✦</button>
+        </div>
+      </div>
+    </Overlay>
+  );
+}
+
+/* ─── Update-available banner ───────────────────────────────────────────── */
+function UpdateBanner({ isDark, onApply, onDismiss }) {
+  const T = useTheme(isDark);
+  const cyan = isDark ? "#22d3ee" : "#0e7490";
+  return (
+    <div style={{
+      position: "fixed", top: "max(72px, calc(env(safe-area-inset-top, 0px) + 72px))",
+      left: "50%", transform: "translateX(-50%)",
+      background: T.panelBg, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+      border: `1px solid ${cyan}55`, borderLeft: `3px solid ${cyan}`,
+      borderRadius: "0 8px 8px 0",
+      padding: "12px 16px 12px 14px", zIndex: 130,
+      animation: "fadeUp 0.4s ease",
+      width: "min(380px, calc(100vw - 28px))",
+      boxShadow: isDark ? "0 8px 32px rgba(0,0,0,0.55)" : "0 8px 32px rgba(0,0,0,0.18)",
+      display: "flex", alignItems: "center", gap: 12,
+    }}>
+      <div style={{ fontSize: 18, color: cyan, flexShrink: 0 }}>↻</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 14, color: T.textPrimary, fontWeight: 500, marginBottom: 2 }}>
+          a new version is ready
+        </div>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 12, color: T.textMuted, fontStyle: "italic", lineHeight: 1.5 }}>
+          your memories will be kept · just refresh to update
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+        <button onClick={onDismiss} style={{
+          background: "transparent", border: "none", color: T.textMuted,
+          fontFamily: "'Lora',serif", fontSize: 11, letterSpacing: "0.1em", cursor: "pointer",
+          padding: "8px 6px", minHeight: 36, fontWeight: 500,
+        }}>later</button>
+        <button onClick={onApply} style={{
+          background: `${cyan}22`, border: `1px solid ${cyan}`,
+          color: cyan, padding: "8px 14px", borderRadius: 5, cursor: "pointer",
+          fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.14em", fontWeight: 700, minHeight: 36,
+        }}>refresh</button>
+      </div>
+    </div>
   );
 }
 
@@ -1042,11 +1198,18 @@ function WelcomeModal({ onStartTour, onSkip }) {
         <div style={{ fontFamily: "'Lora',serif", fontSize: 14.5, color: "rgba(232,228,217,0.92)", lineHeight: 1.85, fontStyle: "italic" }}>
           A quiet place to plant your thoughts, feelings, and memories exactly where they happened — anywhere on earth.
         </div>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 14, background: "rgba(8,145,178,0.1)", border: "1px solid rgba(8,145,178,0.3)", borderLeft: "3px solid rgba(8,145,178,0.75)", padding: "14px 16px", margin: "24px 0 26px", borderRadius: "0 6px 6px 0" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 14, background: "rgba(8,145,178,0.1)", border: "1px solid rgba(8,145,178,0.3)", borderLeft: "3px solid rgba(8,145,178,0.75)", padding: "14px 16px", margin: "24px 0 14px", borderRadius: "0 6px 6px 0" }}>
           <div style={{ fontSize: 16, color: "#22d3ee", marginTop: 1, flexShrink: 0 }}>◉</div>
           <div style={{ fontFamily: "'Lora',serif", fontSize: 13.5, color: "rgba(232,228,217,0.92)", lineHeight: 1.8 }}>
             <span style={{ color: "#ffffff", fontStyle: "italic", fontWeight: 600 }}>Your memories never leave your device.</span><br />
             Everything is stored locally — no servers, no accounts, no tracking.
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 14, background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.28)", borderLeft: "3px solid rgba(168,85,247,0.7)", padding: "14px 16px", margin: "0 0 24px", borderRadius: "0 6px 6px 0" }}>
+          <div style={{ fontSize: 16, color: "#c084fc", marginTop: 1, flexShrink: 0 }}>↻</div>
+          <div style={{ fontFamily: "'Lora',serif", fontSize: 13.5, color: "rgba(232,228,217,0.92)", lineHeight: 1.8 }}>
+            <span style={{ color: "#ffffff", fontStyle: "italic", fontWeight: 600 }}>Updates won't erase your memories.</span><br />
+            Every new version safely keeps everything you've ever planted.
           </div>
         </div>
         <div style={{ display: "flex", gap: 10, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
@@ -1062,14 +1225,12 @@ function WelcomeModal({ onStartTour, onSkip }) {
 function FirstPlantNudge({ isDark, onPlantHere, onPlantWhere, onDismiss, hasLocation }) {
   const T = useTheme(isDark);
   const purple = isDark ? "#a855f7" : "#6d28d9";
-
   return (
     <div style={{
       position: "fixed", bottom: "max(60px, calc(env(safe-area-inset-bottom, 0px) + 60px))",
       left: "50%", transform: "translateX(-50%)",
       background: T.panelBg, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-      border: `1px solid ${purple}50`,
-      borderLeft: `3px solid ${purple}`,
+      border: `1px solid ${purple}50`, borderLeft: `3px solid ${purple}`,
       borderRadius: "0 8px 8px 0",
       padding: "16px 18px 14px", zIndex: 120,
       animation: "fadeUp 0.4s ease",
@@ -1203,18 +1364,14 @@ function SearchBox({ isDark }) {
       width: "min(360px, calc(100vw - 120px))", zIndex: 110,
     }}>
       <div style={{ position: "relative" }}>
-        <input
-          className="yr-search-input"
-          type="text"
-          placeholder="search a place…"
-          autoComplete="off"
-          inputMode="search"
-          value={query}
+        <input className="yr-search-input" type="text" placeholder="search a place…"
+          autoComplete="off" inputMode="search" value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Escape") { setQuery(""); setResults([]); e.target.blur(); } }}
         />
         {query && (
-          <button onClick={() => { haptic("light"); setQuery(""); setResults([]); }} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: isDark ? "rgba(232,228,217,0.7)" : "rgba(10,9,8,0.7)", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4, minWidth: 30, minHeight: 30, display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="Clear search">×</button>
+          <button onClick={() => { haptic("light"); setQuery(""); setResults([]); }}
+            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: isDark ? "rgba(232,228,217,0.7)" : "rgba(10,9,8,0.7)", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4, minWidth: 30, minHeight: 30, display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="Clear search">×</button>
         )}
       </div>
       {(results.length > 0 || loading) && (
@@ -1242,7 +1399,6 @@ function SearchBox({ isDark }) {
 /* ─── Found-you popup ───────────────────────────────────────────────────── */
 function FoundPopup({ lat, lng, mapInstance }) {
   const [pos, setPos] = useState(null);
-
   useEffect(() => {
     if (!mapInstance) return;
     const update = () => {
@@ -1253,13 +1409,8 @@ function FoundPopup({ lat, lng, mapInstance }) {
     mapInstance.on("move zoom", update);
     return () => mapInstance.off("move zoom", update);
   }, [lat, lng, mapInstance]);
-
   if (!pos) return null;
-  return (
-    <div className="yr-found-popup" style={{ left: pos.x, top: pos.y }}>
-      Found you ✦
-    </div>
-  );
+  return <div className="yr-found-popup" style={{ left: pos.x, top: pos.y }}>Found you ✦</div>;
 }
 
 /* ─── Pin card ──────────────────────────────────────────────────────────── */
@@ -1278,9 +1429,7 @@ function PinCard({ pin, mapInstance, isDark, onClose, onForget }) {
       left = Math.max(14, Math.min(left, window.innerWidth - cardW - 14));
       const cardEstHeight = 240;
       let top = pt.y + 44;
-      if (top + cardEstHeight > window.innerHeight - 20) {
-        top = Math.max(14, pt.y - cardEstHeight - 24);
-      }
+      if (top + cardEstHeight > window.innerHeight - 20) top = Math.max(14, pt.y - cardEstHeight - 24);
       setPos({ left, top, width: cardW });
     };
     update();
@@ -1316,8 +1465,7 @@ function PinCard({ pin, mapInstance, isDark, onClose, onForget }) {
           <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, letterSpacing: "0.06em", fontWeight: 500 }}>
             {pin.lat.toFixed(4)}, {pin.lng.toFixed(4)}
           </div>
-          <button
-            onClick={() => { haptic("medium"); onForget(pin.id); }}
+          <button onClick={() => { haptic("medium"); onForget(pin.id); }}
             style={{ background: "transparent", border: "none", color: isDark ? "rgba(252,165,165,0.75)" : "rgba(185,28,28,0.85)", cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.1em", padding: "6px 0", minHeight: 32, fontWeight: 600 }}
           >forget this</button>
         </div>
@@ -1342,7 +1490,7 @@ export default function Yearning() {
   const lastNotifTimeRef = useRef(0);
   const lastNotifLocRef  = useRef(null);
 
-  const [pins,             setPins]             = useState(loadPins);
+  const [pins,             setPins]             = useState(loadPinsWithMigration);
   const [selectedPinId,    setSelectedPinId]    = useState(null);
   const [mode,             setMode]             = useState("view");
   const [placingCoords,    setPlacingCoords]    = useState(null);
@@ -1357,6 +1505,9 @@ export default function Yearning() {
   const [showHelp,         setShowHelp]         = useState(false);
   const [showExportImport, setShowExportImport] = useState(false);
   const [showFirstNudge,   setShowFirstNudge]   = useState(false);
+  const [showWhatsNew,     setShowWhatsNew]     = useState(false);
+  const [whatsNewIsFirstAck, setWhatsNewIsFirstAck] = useState(false);
+  const [showUpdateBanner, setShowUpdateBanner] = useState(false);
   const [notifPermission,  setNotifPermission]  = useState(
     typeof Notification !== "undefined" ? Notification.permission : "default"
   );
@@ -1366,28 +1517,32 @@ export default function Yearning() {
   });
   const [tourStep, setTourStep] = useState(0);
 
-  /* ── Apply theme & viewport meta ── */
+  /* ── Apply theme & viewport meta (incl. Apple PWA hints) ── */
   useEffect(() => {
     document.body.className = isDark ? "theme-dark" : "theme-light";
-    let meta = document.querySelector('meta[name="viewport"]');
-    if (!meta) {
-      meta = document.createElement("meta");
-      meta.name = "viewport";
-      document.head.appendChild(meta);
-    }
-    meta.content = "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover";
 
-    // Set theme-color for mobile browser chrome
-    let themeColor = document.querySelector('meta[name="theme-color"]');
-    if (!themeColor) {
-      themeColor = document.createElement("meta");
-      themeColor.name = "theme-color";
-      document.head.appendChild(themeColor);
-    }
-    themeColor.content = isDark ? "#0a0a0f" : "#f5f3ee";
+    const setMeta = (name, content) => {
+      let el = document.querySelector(`meta[name="${name}"]`);
+      if (!el) { el = document.createElement("meta"); el.name = name; document.head.appendChild(el); }
+      el.content = content;
+    };
+
+    setMeta("viewport", "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover");
+    setMeta("theme-color", isDark ? "#0a0a0f" : "#f5f3ee");
+    setMeta("apple-mobile-web-app-capable", "yes");
+    setMeta("mobile-web-app-capable", "yes");
+    setMeta("apple-mobile-web-app-status-bar-style", isDark ? "black-translucent" : "default");
+    setMeta("apple-mobile-web-app-title", "Yearning");
   }, [isDark]);
 
-  useEffect(() => { savePins(pins); }, [pins]);
+  /* ── Persist pins on every change ── */
+  useEffect(() => { rawSavePins(pins); }, [pins]);
+
+  /* ── Snapshot a backup once per session (extra safety net) ── */
+  useEffect(() => {
+    pushBackup(pins);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const isDarkRef = useRef(isDark);
   useEffect(() => { isDarkRef.current = isDark; }, [isDark]);
@@ -1400,17 +1555,35 @@ export default function Yearning() {
     toastTimer.current = setTimeout(() => setToast(null), 3200);
   }, []);
 
+  /* ── Version detection: show "what's new" once per new version ── */
+  useEffect(() => {
+    if (onboardPhase) return; // Don't run during onboarding
+    const lastSeen = getLastSeenVersion();
+    if (!lastSeen) return; // Brand-new user; finishOnboarding will set version
+    const cmp = compareVersions(lastSeen, APP_VERSION);
+    if (cmp < 0) {
+      const t = setTimeout(() => {
+        setWhatsNewIsFirstAck(true);
+        setShowWhatsNew(true);
+      }, 800);
+      return () => clearTimeout(t);
+    }
+  }, [onboardPhase]);
+
+  /* ── Service worker: detect new versions deployed by the host ── */
+  useEffect(() => {
+    registerServiceWorker(() => setShowUpdateBanner(true));
+  }, []);
+
   /* ── Location-based notifications ── */
   const checkAndNotify = useCallback((lat, lng) => {
     if (Notification.permission !== "granted") return;
     const now = Date.now();
     if (now - lastNotifTimeRef.current < NOTIF_COOLDOWN_MS) return;
-
     if (lastNotifLocRef.current) {
       const d = distanceKm(lat, lng, lastNotifLocRef.current.lat, lastNotifLocRef.current.lng);
       if (d < NOTIF_COOLDOWN_KM) return;
     }
-
     const notifiedLocs = loadNotifLocs();
     const recentlyNotified = notifiedLocs.some(
       (l) => distanceKm(lat, lng, l.lat, l.lng) < NOTIF_COOLDOWN_KM
@@ -1418,7 +1591,6 @@ export default function Yearning() {
     if (recentlyNotified) return;
 
     const nearbyPins = pins.filter((p) => distanceKm(lat, lng, p.lat, p.lng) <= NEARBY_RADIUS_KM);
-
     let shown = false;
     if (nearbyPins.length > 0) {
       shown = showNotification(
@@ -1433,7 +1605,6 @@ export default function Yearning() {
         "You've drifted somewhere unfamiliar. Plant a thought before this moment passes.",
       );
     }
-
     if (shown) {
       lastNotifTimeRef.current = now;
       lastNotifLocRef.current = { lat, lng };
@@ -1441,7 +1612,6 @@ export default function Yearning() {
     }
   }, [pins]);
 
-  /* ── Geolocation watch (only when permission granted) ── */
   useEffect(() => {
     if (!navigator.geolocation) return;
     if (notifPermission !== "granted") return;
@@ -1449,18 +1619,10 @@ export default function Yearning() {
       navigator.geolocation.clearWatch(locationWatchRef.current);
       locationWatchRef.current = null;
     }
-
     const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const { latitude: lat, longitude: lng } = pos.coords;
-        checkAndNotify(lat, lng);
-      },
+      (pos) => { checkAndNotify(pos.coords.latitude, pos.coords.longitude); },
       () => {},
-      {
-        enableHighAccuracy: false,
-        maximumAge: 5 * 60 * 1000,
-        timeout: 30000,
-      }
+      { enableHighAccuracy: false, maximumAge: 5 * 60 * 1000, timeout: 30000 }
     );
     locationWatchRef.current = watchId;
     return () => {
@@ -1471,13 +1633,11 @@ export default function Yearning() {
     };
   }, [notifPermission, checkAndNotify]);
 
-  /* ── Visibility change: app reopened (push reminder) ── */
   useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState !== "visible") return;
       if (Notification.permission !== "granted") return;
       if (pins.length === 0) return;
-      // When user returns to the app, gently nudge them to check
       if (!navigator.geolocation) return;
       navigator.geolocation.getCurrentPosition(
         (pos) => checkAndNotify(pos.coords.latitude, pos.coords.longitude),
@@ -1494,34 +1654,21 @@ export default function Yearning() {
     if (mapRef.current || !mapContainerRef.current || !window.L) return;
     const L = window.L;
     leafletRef.current = L;
-
     const isMobile = isMobileDevice();
-
     const map = L.map(mapContainerRef.current, {
       center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM,
       zoomControl: false, attributionControl: false,
-      // CRITICAL: make pinch-zoom feel native and reliable
-      tap: false, // disable Leaflet's tap simulator (causes ghost clicks on mobile)
-      bounceAtZoomLimits: false,
-      worldCopyJump: true,
-      zoomSnap: isMobile ? 0.5 : 1,
-      zoomDelta: isMobile ? 0.5 : 1,
-      wheelDebounceTime: 40,
-      wheelPxPerZoomLevel: 120,
-      inertia: true,
-      inertiaDeceleration: 3000,
+      tap: false, bounceAtZoomLimits: false, worldCopyJump: true,
+      zoomSnap: isMobile ? 0.5 : 1, zoomDelta: isMobile ? 0.5 : 1,
+      wheelDebounceTime: 40, wheelPxPerZoomLevel: 120,
+      inertia: true, inertiaDeceleration: 3000,
     });
-
     tileLayerRef.current = L.tileLayer(TILE_DARK, {
-      attribution: TILE_ATTR, subdomains: "abcd", maxZoom: 19,
-      crossOrigin: true,
+      attribution: TILE_ATTR, subdomains: "abcd", maxZoom: 19, crossOrigin: true,
     }).addTo(map);
-
-    // Zoom control on the LEFT, vertically centered
     L.control.zoom({ position: "topleft" }).addTo(map);
     L.control.attribution({ position: "bottomright", prefix: false }).addTo(map);
 
-    // Manually center the zoom control vertically via CSS injection
     setTimeout(() => {
       const zoomEl = document.querySelector(".leaflet-control-zoom");
       if (zoomEl && zoomEl.parentElement) {
@@ -1560,12 +1707,9 @@ export default function Yearning() {
     document.head.appendChild(script);
   }, [initMap]);
 
-  /* ── Resize handling ── */
   useEffect(() => {
     if (!mapReady) return;
-    const handleResize = () => {
-      mapRef.current?.invalidateSize();
-    };
+    const handleResize = () => mapRef.current?.invalidateSize();
     window.addEventListener("resize", handleResize);
     window.addEventListener("orientationchange", handleResize);
     return () => {
@@ -1574,20 +1718,17 @@ export default function Yearning() {
     };
   }, [mapReady]);
 
-  /* ── Theme tile swap ── */
   useEffect(() => {
     const L = leafletRef.current;
     const map = mapRef.current;
     if (!L || !map || !mapReady) return;
     if (tileLayerRef.current) map.removeLayer(tileLayerRef.current);
     tileLayerRef.current = L.tileLayer(isDark ? TILE_DARK : TILE_LIGHT, {
-      attribution: TILE_ATTR, subdomains: "abcd", maxZoom: 19,
-      crossOrigin: true,
+      attribution: TILE_ATTR, subdomains: "abcd", maxZoom: 19, crossOrigin: true,
     }).addTo(map);
     tileLayerRef.current.bringToBack();
   }, [isDark, mapReady]);
 
-  /* ── Pin icons ── */
   const createPinIcon = useCallback((pin, isSelected = false) => {
     const L = leafletRef.current;
     if (!L) return null;
@@ -1600,7 +1741,6 @@ export default function Yearning() {
     return L.divIcon({ html, className: "", iconSize: [size + 4, size + 16], iconAnchor: [(size + 4) / 2, size + 16] });
   }, []);
 
-  /* ── Re-render markers ── */
   useEffect(() => {
     const L = leafletRef.current;
     const map = mapRef.current;
@@ -1619,15 +1759,12 @@ export default function Yearning() {
     });
   }, [pins, mapReady, selectedPinId, createPinIcon, isDark]);
 
-  /* ── Map click ── */
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     const handleClick = (e) => {
-      // Suppress click immediately after a pinch or multi-touch
       if (pinchActiveRef.current) return;
       if (Date.now() - lastTouchEndRef.current < 350) return;
-
       if (modeRef.current === "placing") {
         openWriting({ lat: e.latlng.lat, lng: e.latlng.lng });
       } else {
@@ -1638,95 +1775,48 @@ export default function Yearning() {
     return () => map.off("click", handleClick);
   }, [mapReady]);
 
-  /* ── Touch handling: pinch-detection FIRST, then long-press ── */
   useEffect(() => {
     const container = mapContainerRef.current;
     if (!container || !mapReady) return;
-
     let lpStart = null;
-    let touchStartTime = 0;
-
     const clearLP = () => {
-      if (longPressTimer.current) {
-        clearTimeout(longPressTimer.current);
-        longPressTimer.current = null;
-      }
+      if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
       lpStart = null;
     };
-
     const onTouchStart = (e) => {
-      // If 2+ fingers at any point, ABORT long-press immediately
-      if (e.touches.length >= 2) {
-        pinchActiveRef.current = true;
-        clearLP();
-        return;
-      }
-
-      // Single finger — could be tap, long-press, or pan
+      if (e.touches.length >= 2) { pinchActiveRef.current = true; clearLP(); return; }
       pinchActiveRef.current = false;
-      touchStartTime = Date.now();
-
-      // Don't trigger long-press if a modal is open or we're not in view/placing
       if (modeRef.current !== "view" && modeRef.current !== "placing") return;
-
       const touch = e.touches[0];
       lpStart = { x: touch.clientX, y: touch.clientY, target: e.target };
-
       longPressTimer.current = setTimeout(() => {
-        // Final safety check: only fire if still 1 finger and not in pinch
         if (!lpStart || pinchActiveRef.current) return;
-        const map = mapRef.current;
-        if (!map) return;
-
+        const map = mapRef.current; if (!map) return;
         const rect = container.getBoundingClientRect();
-        const pt = map.containerPointToLatLng([
-          lpStart.x - rect.left,
-          lpStart.y - rect.top,
-        ]);
-        haptic("medium");
-        playSound("chime");
+        const pt = map.containerPointToLatLng([lpStart.x - rect.left, lpStart.y - rect.top]);
+        haptic("medium"); playSound("chime");
         openWriting({ lat: pt.lat, lng: pt.lng });
         showToast("long-press pinned ✦");
         lpStart = null;
       }, 600);
     };
-
     const onTouchMove = (e) => {
-      // Multi-touch detected during move — definitely a pinch
-      if (e.touches.length >= 2) {
-        pinchActiveRef.current = true;
-        clearLP();
-        return;
-      }
-      // Single touch moved too far — it's a pan, not a long-press
+      if (e.touches.length >= 2) { pinchActiveRef.current = true; clearLP(); return; }
       if (!lpStart || !e.touches[0]) return;
       const t = e.touches[0];
-      if (Math.abs(t.clientX - lpStart.x) > 10 || Math.abs(t.clientY - lpStart.y) > 10) {
-        clearLP();
-      }
+      if (Math.abs(t.clientX - lpStart.x) > 10 || Math.abs(t.clientY - lpStart.y) > 10) clearLP();
     };
-
     const onTouchEnd = (e) => {
       lastTouchEndRef.current = Date.now();
       clearLP();
-
-      // Reset pinch flag after small delay so the synthetic click after
-      // the gesture is suppressed by the click handler above.
-      if (e.touches.length === 0) {
-        setTimeout(() => { pinchActiveRef.current = false; }, 250);
-      }
+      if (e.touches.length === 0) setTimeout(() => { pinchActiveRef.current = false; }, 250);
     };
-
-    const onTouchCancel = () => {
-      clearLP();
-      setTimeout(() => { pinchActiveRef.current = false; }, 250);
-    };
+    const onTouchCancel = () => { clearLP(); setTimeout(() => { pinchActiveRef.current = false; }, 250); };
 
     container.addEventListener("touchstart",  onTouchStart, { passive: true });
     container.addEventListener("touchmove",   onTouchMove,  { passive: true });
     container.addEventListener("touchend",    onTouchEnd,   { passive: true });
     container.addEventListener("touchcancel", onTouchCancel,{ passive: true });
-
     return () => {
       container.removeEventListener("touchstart",  onTouchStart);
       container.removeEventListener("touchmove",   onTouchMove);
@@ -1736,7 +1826,6 @@ export default function Yearning() {
     };
   }, [mapReady, showToast]);
 
-  /* ── Cursor ── */
   useEffect(() => {
     const c = mapContainerRef.current;
     if (c) c.style.cursor = mode === "placing" ? "crosshair" : "";
@@ -1759,7 +1848,6 @@ export default function Yearning() {
     mapRef.current?.flyTo([newPin.lat, newPin.lng], 16, { duration: 1.2 });
     showToast("Memory planted ✦");
     setShowFirstNudge(false);
-    // Request notification permission on first plant (gentle nudge)
     if (Notification.permission === "default") {
       setTimeout(async () => {
         const granted = await requestNotificationPermission();
@@ -1789,8 +1877,7 @@ export default function Yearning() {
         const pulseHtml = `<div style="position:relative;width:20px;height:20px;pointer-events:none"><div style="position:absolute;inset:0;border-radius:50%;background:rgba(8,145,178,0.22);animation:gps-pulse 2s infinite"></div><div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:11px;height:11px;border-radius:50%;background:#22d3ee;border:2px solid white;box-shadow:0 0 10px #22d3ee"></div></div>`;
         userMarkerRef.current = L.marker([lat, lng], {
           icon: L.divIcon({ html: pulseHtml, className: "", iconSize: [20, 20], iconAnchor: [10, 10] }),
-          zIndexOffset: 1000,
-          interactive: false,
+          zIndexOffset: 1000, interactive: false,
         }).addTo(map);
         map.flyTo([lat, lng], 10, { duration: 2 });
         setTimeout(() => setFoundPopup({ lat, lng }), 2100);
@@ -1802,8 +1889,7 @@ export default function Yearning() {
   }, [showToast]);
 
   const plantAtCenter = () => {
-    const map = mapRef.current;
-    if (!map) return;
+    const map = mapRef.current; if (!map) return;
     const c = map.getCenter();
     openWriting({ lat: c.lat, lng: c.lng });
   };
@@ -1824,8 +1910,7 @@ export default function Yearning() {
 
   const confirmForget = () => {
     setPins((p) => p.filter((x) => x.id !== forgetTargetId));
-    setSelectedPinId(null);
-    setForgetTargetId(null);
+    setSelectedPinId(null); setForgetTargetId(null);
     showToast("gently forgotten ·˚");
   };
 
@@ -1844,12 +1929,10 @@ export default function Yearning() {
     setNotifPermission(typeof Notification !== "undefined" ? Notification.permission : "default");
     if (granted) {
       showToast("location reminders enabled ·˚");
-      // Try to immediately get current position to seed
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (pos) => checkAndNotify(pos.coords.latitude, pos.coords.longitude),
-          () => {},
-          { timeout: 5000 }
+          () => {}, { timeout: 5000 }
         );
       }
     } else {
@@ -1857,32 +1940,45 @@ export default function Yearning() {
     }
   }, [showToast, checkAndNotify]);
 
-  /* ── Onboarding ── */
+  const dismissWhatsNew = () => {
+    haptic("light");
+    setShowWhatsNew(false);
+    setLastSeenVersion(APP_VERSION);
+  };
+
+  const applyUpdate = useCallback(() => {
+    haptic("medium");
+    rawSavePins(pins);
+    pushBackup(pins);
+    if (navigator.serviceWorker?.controller) {
+      navigator.serviceWorker.getRegistration().then((reg) => {
+        if (reg?.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
+      }).catch(() => {});
+    }
+    setTimeout(() => window.location.reload(), 200);
+  }, [pins]);
+
   const finishOnboarding = () => {
     try { localStorage.setItem(ONBOARDED_KEY, "1"); } catch {}
-    setOnboardPhase(null);
-    setTourStep(0);
-    // Show first-plant nudge shortly after onboarding ends
+    setOnboardPhase(null); setTourStep(0);
+    if (!getLastSeenVersion()) setLastSeenVersion(APP_VERSION);
     setTimeout(() => setShowFirstNudge(true), 700);
   };
-  const skipOnboarding = () => {
-    finishOnboarding();
-    showToast("help is always in the i button ·˚");
-  };
+  const skipOnboarding = () => { finishOnboarding(); showToast("help is always in the i button ·˚"); };
 
   /* ── Derived ── */
   const T = useTheme(isDark);
   const selectedPin = pins.find((p) => p.id === selectedPinId);
   const forgetTargetPin = pins.find((p) => p.id === forgetTargetId);
 
-  const toolBtnStyle = {
-    background: T.toolBg,
-    borderColor: T.toolBorder,
-    color: T.toolColor,
-  };
-
-  const cyan = isDark ? "#22d3ee" : "#0e7490";
+  const toolBtnStyle = { background: T.toolBg, borderColor: T.toolBorder, color: T.toolColor };
+  const cyan   = isDark ? "#22d3ee" : "#0e7490";
   const purple = isDark ? "#a855f7" : "#6d28d9";
+
+  const lastSeen = getLastSeenVersion();
+  const changelogEntries = whatsNewIsFirstAck
+    ? CHANGELOG.filter((c) => compareVersions(c.version, lastSeen || "0.0.0") > 0)
+    : CHANGELOG;
 
   return (
     <div style={{
@@ -1892,15 +1988,13 @@ export default function Yearning() {
     }}>
       <style>{GLOBAL_CSS}</style>
 
-      {/* Map */}
       <div ref={mapContainerRef} style={{ position: "absolute", inset: 0, zIndex: 0 }} />
 
       {/* Header gradient */}
       <div style={{
         position: "fixed", top: 0, left: 0, right: 0, zIndex: 100,
         padding: "max(18px, calc(env(safe-area-inset-top, 0px) + 14px)) 22px 44px",
-        background: T.headerGrad,
-        pointerEvents: "none",
+        background: T.headerGrad, pointerEvents: "none",
         display: "flex", alignItems: "flex-start", justifyContent: "space-between",
       }}>
         <div>
@@ -1914,8 +2008,16 @@ export default function Yearning() {
         )}
       </div>
 
-      {/* Search */}
       {mapReady && <SearchBox isDark={isDark} />}
+
+      {/* Update available banner */}
+      {showUpdateBanner && !showWhatsNew && (
+        <UpdateBanner
+          isDark={isDark}
+          onApply={applyUpdate}
+          onDismiss={() => { haptic("light"); setShowUpdateBanner(false); }}
+        />
+      )}
 
       {/* Right toolbar */}
       {mode !== "placing" && (
@@ -1925,94 +2027,58 @@ export default function Yearning() {
           top: "50%", transform: "translateY(-50%)",
           zIndex: 100, display: "flex", flexDirection: "column", gap: 8,
         }}>
-          <button
-            id="btn-locate"
-            className="yr-tool-btn"
-            title="Locate me"
-            aria-label="Locate me"
+          <button id="btn-locate" className="yr-tool-btn" title="Locate me" aria-label="Locate me"
             onClick={() => { haptic("light"); requestLocation(); }}
             style={{
-              background: locationStatus === "granted"
-                ? (isDark ? "rgba(8,145,178,0.18)" : "rgba(14,116,144,0.12)")
-                : T.toolBg,
-              borderColor: locationStatus === "granted"
-                ? cyan
-                : T.toolBorder,
+              background: locationStatus === "granted" ? (isDark ? "rgba(8,145,178,0.18)" : "rgba(14,116,144,0.12)") : T.toolBg,
+              borderColor: locationStatus === "granted" ? cyan : T.toolBorder,
               color: locationStatus === "granted" ? cyan : T.toolColor,
-            }}
-          >
+            }}>
             {locationStatus === "requesting"
               ? <div style={{ width: 14, height: 14, border: `2px solid ${cyan}40`, borderTopColor: cyan, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
               : "◎"}
           </button>
 
-          <ToolBtn id="btn-plant"
-            title={userLatLng ? "Plant at my location" : "Plant at map center"}
+          <ToolBtn id="btn-plant" title={userLatLng ? "Plant at my location" : "Plant at map center"}
             onClick={() => { userLatLng ? openWriting(userLatLng) : plantAtCenter(); }}
-            style={{ background: `${purple}1f`, borderColor: purple, color: purple }}>
-            ✦
-          </ToolBtn>
+            style={{ background: `${purple}1f`, borderColor: purple, color: purple }}>✦</ToolBtn>
 
           <ToolBtn id="btn-place" title="Tap anywhere on map"
             onClick={() => { setMode("placing"); setSelectedPinId(null); showToast("tap a spot · or long-press"); }}
-            style={{ ...toolBtnStyle, fontSize: 22, fontWeight: 400 }}>
-            +
-          </ToolBtn>
+            style={{ ...toolBtnStyle, fontSize: 22, fontWeight: 400 }}>+</ToolBtn>
 
           {pins.length > 0 && (
-            <ToolBtn id="btn-random" title="Jump to a random memory"
-              onClick={jumpRandom}
-              style={{ ...toolBtnStyle, fontSize: 14 }}>
-              ↝
-            </ToolBtn>
+            <ToolBtn id="btn-random" title="Jump to a random memory" onClick={jumpRandom}
+              style={{ ...toolBtnStyle, fontSize: 14 }}>↝</ToolBtn>
           )}
 
-          <ToolBtn id="btn-reset" title="Reset view"
-            onClick={resetView}
-            style={{ ...toolBtnStyle, fontSize: 16 }}>
-            ⌂
-          </ToolBtn>
+          <ToolBtn id="btn-reset" title="Reset view" onClick={resetView}
+            style={{ ...toolBtnStyle, fontSize: 16 }}>⌂</ToolBtn>
 
           <div style={{ height: 1, background: T.panelBorder, borderRadius: 1, margin: "2px 8px" }} />
 
-          <ToolBtn id="btn-theme"
-            title={isDark ? "Switch to light map" : "Switch to dark map"}
-            onClick={() => { setIsDark((v) => !v); }}
-            style={{ ...toolBtnStyle, fontSize: 14 }}>
-            ◑
-          </ToolBtn>
+          <ToolBtn id="btn-theme" title={isDark ? "Switch to light map" : "Switch to dark map"}
+            onClick={() => { setIsDark((v) => !v); }} style={{ ...toolBtnStyle, fontSize: 14 }}>◑</ToolBtn>
 
           <ToolBtn id="btn-exportimport" title="Export / Import memories"
-            onClick={() => { setShowExportImport(true); }}
-            style={{ ...toolBtnStyle, fontSize: 14 }}>
-            ⬇
-          </ToolBtn>
+            onClick={() => { setShowExportImport(true); }} style={{ ...toolBtnStyle, fontSize: 14 }}>⬇</ToolBtn>
 
           <ToolBtn id="btn-tipjar" title="Support Yearning"
-            onClick={() => { setShowTipJar(true); }}
-            style={toolBtnStyle}>
-            ☕
-          </ToolBtn>
+            onClick={() => { setShowTipJar(true); }} style={toolBtnStyle}>☕</ToolBtn>
 
-          <ToolBtn id="btn-help" title="Help"
-            onClick={() => { setShowHelp(true); }}
-            style={{ ...toolBtnStyle, fontFamily: "'Lora',serif", fontStyle: "italic", fontWeight: 600, fontSize: 16 }}>
-            i
-          </ToolBtn>
+          <ToolBtn id="btn-help" title="Help" onClick={() => { setShowHelp(true); }}
+            style={{ ...toolBtnStyle, fontFamily: "'Lora',serif", fontStyle: "italic", fontWeight: 600, fontSize: 16 }}>i</ToolBtn>
         </div>
       )}
 
-      {/* Cancel placing */}
       {mode === "placing" && (
-        <button
-          className="yr-tool-btn"
-          onClick={() => { haptic("light"); setMode("view"); }}
+        <button className="yr-tool-btn" onClick={() => { haptic("light"); setMode("view"); }}
           aria-label="Cancel placing"
           style={{ position: "fixed", right: "max(14px, env(safe-area-inset-right, 14px))", top: "50%", transform: "translateY(-50%)", zIndex: 100, background: "rgba(220,38,38,0.14)", borderColor: "rgba(220,38,38,0.5)", color: isDark ? "rgba(252,165,165,1)" : "#b91c1c", fontSize: 22 }}
         >×</button>
       )}
 
-      {/* Mood legend — bottom left */}
+      {/* Mood legend */}
       <div style={{
         position: "fixed",
         left: "max(14px, env(safe-area-inset-left, 14px))",
@@ -2021,24 +2087,18 @@ export default function Yearning() {
       }}>
         {T.moods.map((m) => (
           <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 7 }}>
-            <div style={{
-              width: 8, height: 8, borderRadius: "50%", background: m.color, flexShrink: 0,
-              boxShadow: `0 0 5px ${m.color}aa`,
-            }} />
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: m.color, flexShrink: 0, boxShadow: `0 0 5px ${m.color}aa` }} />
             <span style={{
               fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.12em",
-              color: T.textPrimary,
-              background: T.legendChipBg,
+              color: T.textPrimary, background: T.legendChipBg,
               border: `1px solid ${T.legendChipBorder}`,
               padding: "2px 8px", borderRadius: 4,
-              backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)",
-              fontWeight: 600,
+              backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", fontWeight: 600,
             }}>{m.label}</span>
           </div>
         ))}
       </div>
 
-      {/* Placing hint */}
       {mode === "placing" && (
         <div style={{
           position: "fixed", bottom: "max(30px, calc(env(safe-area-inset-bottom, 0px) + 30px))",
@@ -2051,13 +2111,10 @@ export default function Yearning() {
           animation: "fadeUp 0.25s ease",
           maxWidth: "calc(100vw - 28px)", textAlign: "center",
           boxShadow: isDark ? "0 4px 20px rgba(0,0,0,0.5)" : "0 4px 20px rgba(0,0,0,0.15)",
-        }}>
-          tap anywhere · or long-press to plant instantly
-        </div>
+        }}>tap anywhere · or long-press to plant instantly</div>
       )}
 
-      {/* Empty state */}
-      {pins.length === 0 && mode === "view" && mapReady && !selectedPinId && !showFirstNudge && onboardPhase === null && (
+      {pins.length === 0 && mode === "view" && mapReady && !selectedPinId && !showFirstNudge && onboardPhase === null && !showWhatsNew && (
         <div style={{
           position: "fixed", bottom: "max(30px, calc(env(safe-area-inset-bottom, 0px) + 30px))",
           left: "50%", transform: "translateX(-50%)",
@@ -2077,67 +2134,59 @@ export default function Yearning() {
         </div>
       )}
 
-      {/* First plant nudge */}
-      {showFirstNudge && pins.length === 0 && mode === "view" && onboardPhase === null && (
+      {showFirstNudge && pins.length === 0 && mode === "view" && onboardPhase === null && !showWhatsNew && (
         <FirstPlantNudge
-          isDark={isDark}
-          hasLocation={!!userLatLng}
+          isDark={isDark} hasLocation={!!userLatLng}
           onPlantHere={() => { setShowFirstNudge(false); openWriting(userLatLng); }}
           onPlantWhere={() => { setShowFirstNudge(false); plantAtCenter(); }}
           onDismiss={() => setShowFirstNudge(false)}
         />
       )}
 
-      {/* Pin card */}
       {selectedPin && mode === "view" && mapRef.current && (
-        <PinCard
-          pin={selectedPin}
-          mapInstance={mapRef.current}
-          isDark={isDark}
-          onClose={() => setSelectedPinId(null)}
-          onForget={setForgetTargetId}
-        />
+        <PinCard pin={selectedPin} mapInstance={mapRef.current} isDark={isDark}
+          onClose={() => setSelectedPinId(null)} onForget={setForgetTargetId} />
       )}
 
-      {/* Found popup */}
       {foundPopup && mapRef.current && (
         <FoundPopup lat={foundPopup.lat} lng={foundPopup.lng} mapInstance={mapRef.current} />
       )}
 
-      {/* Writing modal */}
       {mode === "writing" && (
         <WritingModal coords={placingCoords} onSave={handleSave} onCancel={cancelWrite} isDark={isDark} />
       )}
 
-      {/* Forget modal */}
       {forgetTargetId && forgetTargetPin && (
         <ForgetModal pin={forgetTargetPin} onConfirm={confirmForget} onCancel={() => setForgetTargetId(null)} isDark={isDark} />
       )}
 
-      {/* Export / Import */}
       {showExportImport && (
-        <ExportImportModal
-          pins={pins}
-          onImport={handleImport}
-          onClose={() => setShowExportImport(false)}
-          isDark={isDark}
-        />
+        <ExportImportModal pins={pins} onImport={handleImport} onClose={() => setShowExportImport(false)} isDark={isDark} />
       )}
 
-      {/* Tip jar */}
       {showTipJar && <TipJarModal onClose={() => setShowTipJar(false)} isDark={isDark} />}
 
-      {/* Help */}
       {showHelp && (
         <HelpModal
           onClose={() => setShowHelp(false)}
           isDark={isDark}
           onEnableNotifications={handleEnableNotifications}
           notifPermission={notifPermission}
+          pinCount={pins.length}
+          onShowChangelog={() => { setShowHelp(false); setWhatsNewIsFirstAck(false); setShowWhatsNew(true); }}
         />
       )}
 
-      {/* Onboarding */}
+      {showWhatsNew && (
+        <WhatsNewModal
+          entries={changelogEntries.length > 0 ? changelogEntries : CHANGELOG}
+          isFirstAcknowledgement={whatsNewIsFirstAck}
+          onClose={dismissWhatsNew}
+          isDark={isDark}
+          pinCount={pins.length}
+        />
+      )}
+
       {onboardPhase === "welcome" && (
         <WelcomeModal
           onStartTour={() => { setOnboardPhase("tour"); setTourStep(0); }}
@@ -2147,8 +2196,7 @@ export default function Yearning() {
 
       {onboardPhase === "tour" && (
         <TourOverlay
-          step={tourStep}
-          total={TOUR_STEPS.length}
+          step={tourStep} total={TOUR_STEPS.length}
           onNext={() => {
             if (tourStep >= TOUR_STEPS.length - 1) { finishOnboarding(); showToast("you're all set ✦"); }
             else setTourStep((s) => s + 1);
@@ -2156,11 +2204,10 @@ export default function Yearning() {
           onPrev={() => setTourStep((s) => Math.max(0, s - 1))}
           onSkip={skipOnboarding}
         />
-
       )}
 
       <Toast msg={toast} isDark={isDark} />
-         <SpeedInsights />
+          <SpeedInsights />
         <Analytics />
     </div>
   );
