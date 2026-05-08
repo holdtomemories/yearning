@@ -1,14 +1,29 @@
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from '@vercel/speed-insights/react';
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
 /* ─── App version & changelog ───────────────────────────────────────────── */
-/* Bump APP_VERSION whenever you ship a meaningful change. Add an entry to
-   CHANGELOG. Users see the "what's new" panel ONCE per new version they
-   haven't acknowledged yet. Memories are migrated and preserved across every
-   version bump — see migratePins() below. */
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.3.0";
 const CHANGELOG = [
+  {
+    version: "1.3.0",
+    date: "May 2026",
+    title: "A richer sense of place",
+    notes: [
+      "Memories now remember the city and country they were planted in — automatically.",
+      "Time travel: drag the slider at the bottom to filter memories by date range.",
+      "Mood filters: tap any mood chip to see only those memories. Tap more to combine.",
+      "Search through everything you've ever written — title, body, place, mood.",
+      "Heatmap view: press the new ⌘ button to see where you think the most.",
+      "On this day: gentle resurfacing of memories from a year, two, or five years ago.",
+      "Anniversary loops: planting near an old memory quietly tells you who you were here before.",
+      "Edit memories within 24 hours of planting — for second thoughts and small fixes.",
+      "Share a memory as a paper-textured card with its own hand-carved seal.",
+      "A new stat in the help center: how long you've been listening to yourself.",
+      "Light/dark theme preference now persists across sessions.",
+      "Backup nudge: gentle reminder if you haven't exported in 15 days.",
+    ],
+  },
   {
     version: "1.2.0",
     date: "April 2026",
@@ -47,6 +62,11 @@ const NOTIF_LOCS_KEY  = "yearning_notified_locs_v1";
 const VERSION_KEY     = "yearning_last_seen_version";
 const SCHEMA_KEY      = "yearning_schema_version";
 const BACKUP_KEY      = "yearning_pins_backups";
+const THEME_KEY       = "yearning_theme";
+const LAST_BACKUP_KEY = "yearning_last_backup_at";
+const ANNIV_DISMISS_KEY = "yearning_anniv_dismissed_today";
+const GEOCACHE_KEY    = "yearning_geocache_v1";
+const FIRST_RUN_KEY   = "yearning_first_run_at";
 const KOFI_URL        = "https://ko-fi.com/donatetoyearning";
 const DEFAULT_CENTER  = [20, 0];
 const DEFAULT_ZOOM    = 2;
@@ -56,8 +76,11 @@ const TILE_LIGHT      = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}
 const NEARBY_RADIUS_KM   = 5;
 const NOTIF_COOLDOWN_KM  = 1.0;
 const NOTIF_COOLDOWN_MS  = 30 * 60 * 1000;
-const CURRENT_SCHEMA     = 2;
+const CURRENT_SCHEMA     = 3;
 const MAX_BACKUPS        = 3;
+const BACKUP_NUDGE_DAYS  = 15;
+const EDIT_WINDOW_MS     = 24 * 60 * 60 * 1000;
+const ANNIVERSARY_RADIUS_M = 50;
 
 const MOODS_DARK = [
   { key: "wonder",    label: "Wonder",    color: "#a855f7" },
@@ -83,8 +106,10 @@ const TOUR_STEPS = [
   { targetId: "btn-locate",        title: "Locate Me",       desc: "Flies to your GPS position on the map and drops a live pulse marker where you are." },
   { targetId: "btn-plant",         title: "Plant Here ✦",    desc: "Instantly plants a memory pin at your GPS location — or at the map center if location is off." },
   { targetId: "btn-place",         title: "Tap Anywhere +",  desc: "Activates placement mode. Tap any spot on the map or long-press to instantly plant a memory." },
+  { targetId: "btn-search",        title: "Search Memories", desc: "Search through every memory you've ever planted — by title, body, mood, or place." },
+  { targetId: "btn-heatmap",       title: "Heatmap ⌘",       desc: "Toggle a soft density view — see where you think the most." },
   { targetId: "btn-reset",         title: "Reset View ⌂",    desc: "Returns the map to the default world view — handy when you're lost in a zoom." },
-  { targetId: "btn-theme",         title: "Light / Dark ◑",  desc: "Toggle between a moody dark map and a clean light map. Colors adapt automatically." },
+  { targetId: "btn-theme",         title: "Light / Dark ◑",  desc: "Toggle between a moody dark map and a clean light map. Your choice persists." },
   { targetId: "search-container",  title: "Search Places",   desc: "Type any city, country, or address to fly the map there instantly." },
   { targetId: "btn-exportimport",  title: "Export / Import", desc: "Download a backup of all your memories, or restore them on another device." },
   { targetId: "btn-tipjar",        title: "Support ☕",      desc: "Keep Yearning free — buy us a coffee if it brings you joy." },
@@ -98,10 +123,126 @@ const getMoodByKey = (key, isDark = true) => {
   return set.find((m) => m.key === key) ?? set[0];
 };
 
+const safeGetItem = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const safeSetItem = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+
+/* ─── Reverse geocoding (cached) ────────────────────────────────────────── */
+function loadGeocache() {
+  try { return JSON.parse(safeGetItem(GEOCACHE_KEY) || "{}"); } catch { return {}; }
+}
+function saveGeocache(cache) {
+  try {
+    const entries = Object.entries(cache);
+    if (entries.length > 500) {
+      const trimmed = Object.fromEntries(entries.slice(-400));
+      safeSetItem(GEOCACHE_KEY, JSON.stringify(trimmed));
+    } else {
+      safeSetItem(GEOCACHE_KEY, JSON.stringify(cache));
+    }
+  } catch {}
+}
+function geocacheKey(lat, lng) {
+  // round to ~1km precision so nearby pins share cache
+  return `${lat.toFixed(2)},${lng.toFixed(2)}`;
+}
+async function reverseGeocode(lat, lng) {
+  const cache = loadGeocache();
+  const key = geocacheKey(lat, lng);
+  if (cache[key]) return cache[key];
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=10&addressdetails=1`,
+      { headers: { "Accept-Language": "en" } }
+    );
+    if (!res.ok) throw new Error("geocode failed");
+    const data = await res.json();
+    const a = data.address || {};
+    const city = a.city || a.town || a.village || a.hamlet || a.suburb || a.county || a.state || "";
+    const country = a.country || "";
+    const result = { city, country };
+    cache[key] = result;
+    saveGeocache(cache);
+    return result;
+  } catch {
+    return { city: "", country: "" };
+  }
+}
+
+/* ─── Seal/glyph generation (deterministic from coords + time) ──────────── */
+// Hash function: turn lat/lng/timestamp into a stable seed
+function makeSeed(lat, lng, timestamp, city = "") {
+  const str = `${lat.toFixed(4)}|${lng.toFixed(4)}|${timestamp}|${city}`;
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+// Mulberry32 PRNG — small, good enough
+function makeRng(seed) {
+  let s = seed;
+  return () => {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// Generate an organic wax-seal SVG path from a seed
+function generateSeal(seed, color = "#a855f7", size = 120) {
+  const rng = makeRng(seed);
+  const cx = size / 2, cy = size / 2;
+  const baseR = size * 0.32;
+  const points = 12 + Math.floor(rng() * 4); // 12-15 points
+  const path = [];
+  for (let i = 0; i < points; i++) {
+    const ang = (i / points) * Math.PI * 2;
+    const wob = 0.78 + rng() * 0.34; // organic radius wobble
+    const r = baseR * wob;
+    const x = cx + Math.cos(ang) * r;
+    const y = cy + Math.sin(ang) * r;
+    path.push([x, y]);
+  }
+  // Close with smooth curves
+  let d = `M ${path[0][0].toFixed(1)} ${path[0][1].toFixed(1)}`;
+  for (let i = 0; i < path.length; i++) {
+    const cur = path[i];
+    const next = path[(i + 1) % path.length];
+    const mx = (cur[0] + next[0]) / 2;
+    const my = (cur[1] + next[1]) / 2;
+    d += ` Q ${cur[0].toFixed(1)} ${cur[1].toFixed(1)} ${mx.toFixed(1)} ${my.toFixed(1)}`;
+  }
+  d += " Z";
+
+  // Inner mark — 2-3 strokes that feel like a chop
+  const marks = [];
+  const markCount = 2 + Math.floor(rng() * 2);
+  for (let i = 0; i < markCount; i++) {
+    const a1 = rng() * Math.PI * 2;
+    const a2 = a1 + (Math.PI * 0.4) + rng() * Math.PI * 0.6;
+    const r1 = baseR * (0.25 + rng() * 0.35);
+    const r2 = baseR * (0.25 + rng() * 0.35);
+    const x1 = cx + Math.cos(a1) * r1;
+    const y1 = cy + Math.sin(a1) * r1;
+    const x2 = cx + Math.cos(a2) * r2;
+    const y2 = cy + Math.sin(a2) * r2;
+    marks.push({ x1, y1, x2, y2 });
+  }
+  // Tiny dot
+  const dotAng = rng() * Math.PI * 2;
+  const dotR = baseR * 0.5;
+  const dotX = cx + Math.cos(dotAng) * dotR;
+  const dotY = cy + Math.sin(dotAng) * dotR;
+
+  return { path: d, marks, dot: { x: dotX, y: dotY }, size };
+}
+
 /* ─── Migration & persistence ──────────────────────────────────────────── */
 function rawLoadPins() {
   try {
-    const txt = localStorage.getItem(STORAGE_KEY);
+    const txt = safeGetItem(STORAGE_KEY);
     if (!txt) return [];
     const parsed = JSON.parse(txt);
     return Array.isArray(parsed) ? parsed : [];
@@ -109,30 +250,28 @@ function rawLoadPins() {
 }
 
 function rawSavePins(pins) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(pins)); } catch {}
+  safeSetItem(STORAGE_KEY, JSON.stringify(pins));
 }
 
 function getStoredSchemaVersion() {
-  try {
-    const v = localStorage.getItem(SCHEMA_KEY);
-    return v ? parseInt(v, 10) : 1;
-  } catch { return 1; }
+  const v = safeGetItem(SCHEMA_KEY);
+  return v ? parseInt(v, 10) : 1;
 }
 
 function setStoredSchemaVersion(v) {
-  try { localStorage.setItem(SCHEMA_KEY, String(v)); } catch {}
+  safeSetItem(SCHEMA_KEY, String(v));
 }
 
 function pushBackup(pins) {
   try {
-    const existing = JSON.parse(localStorage.getItem(BACKUP_KEY) || "[]");
+    const existing = JSON.parse(safeGetItem(BACKUP_KEY) || "[]");
     existing.unshift({ at: Date.now(), version: APP_VERSION, pins });
-    localStorage.setItem(BACKUP_KEY, JSON.stringify(existing.slice(0, MAX_BACKUPS)));
+    safeSetItem(BACKUP_KEY, JSON.stringify(existing.slice(0, MAX_BACKUPS)));
   } catch {}
 }
 
 function getBackups() {
-  try { return JSON.parse(localStorage.getItem(BACKUP_KEY) || "[]"); } catch { return []; }
+  try { return JSON.parse(safeGetItem(BACKUP_KEY) || "[]"); } catch { return []; }
 }
 
 const MIGRATIONS = {
@@ -143,6 +282,12 @@ const MIGRATIONS = {
     createdAt: p.createdAt || (typeof p.id === "string" && /^\d+$/.test(p.id) ? parseInt(p.id, 10) : Date.now()),
     moodLabel: p.moodLabel || (p.mood === "other" ? p.customMood || "Other" : (MOODS_DARK.find((m) => m.key === p.mood)?.label ?? "Wonder")),
     moodColor: p.moodColor || (MOODS_DARK.find((m) => m.key === p.mood)?.color ?? MOODS_DARK[0].color),
+  })),
+  // schema 2 → 3: add empty city/country fields (filled later by reverse geocoding)
+  2: (pins) => pins.map((p) => ({
+    ...p,
+    city: p.city || "",
+    country: p.country || "",
   })),
 };
 
@@ -179,18 +324,40 @@ function loadPinsWithMigration() {
 }
 
 function loadNotifLocs() {
-  try { return JSON.parse(localStorage.getItem(NOTIF_LOCS_KEY)) || []; } catch { return []; }
+  try { return JSON.parse(safeGetItem(NOTIF_LOCS_KEY)) || []; } catch { return []; }
 }
 function saveNotifLocs(locs) {
-  try { localStorage.setItem(NOTIF_LOCS_KEY, JSON.stringify(locs.slice(-30))); } catch {}
+  safeSetItem(NOTIF_LOCS_KEY, JSON.stringify(locs.slice(-30)));
 }
 
-function getLastSeenVersion() {
-  try { return localStorage.getItem(VERSION_KEY); } catch { return null; }
+function getLastSeenVersion() { return safeGetItem(VERSION_KEY); }
+function setLastSeenVersion(v) { safeSetItem(VERSION_KEY, v); }
+
+function getStoredTheme() {
+  const v = safeGetItem(THEME_KEY);
+  if (v === "light" || v === "dark") return v;
+  return "dark"; // default
 }
-function setLastSeenVersion(v) {
-  try { localStorage.setItem(VERSION_KEY, v); } catch {}
+function setStoredTheme(t) { safeSetItem(THEME_KEY, t); }
+
+function getLastBackupAt() {
+  const v = safeGetItem(LAST_BACKUP_KEY);
+  return v ? parseInt(v, 10) : null;
 }
+function setLastBackupAt(t) { safeSetItem(LAST_BACKUP_KEY, String(t)); }
+
+function getFirstRunAt() {
+  let v = safeGetItem(FIRST_RUN_KEY);
+  if (!v) { v = String(Date.now()); safeSetItem(FIRST_RUN_KEY, v); }
+  return parseInt(v, 10);
+}
+
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+function getAnnivDismissed() { return safeGetItem(ANNIV_DISMISS_KEY); }
+function setAnnivDismissed() { safeSetItem(ANNIV_DISMISS_KEY, todayKey()); }
 
 function compareVersions(a, b) {
   if (!a) return -1;
@@ -266,6 +433,9 @@ function distanceKm(lat1, lng1, lat2, lng2) {
     Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
+function distanceM(lat1, lng1, lat2, lng2) {
+  return distanceKm(lat1, lng1, lat2, lng2) * 1000;
+}
 
 function isMobileDevice() {
   if (typeof window === "undefined") return false;
@@ -294,7 +464,7 @@ function showNotification(title, body, onClick) {
   } catch { return false; }
 }
 
-/* ─── Service worker registration (if /sw.js is hosted) ────────────────── */
+/* ─── Service worker registration ──────────────────────────────────────── */
 function registerServiceWorker(onUpdateAvailable) {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
   if (window.location.protocol !== "https:" && window.location.hostname !== "localhost") return;
@@ -326,6 +496,25 @@ function registerServiceWorker(onUpdateAvailable) {
   });
 }
 
+/* ─── Date formatting ──────────────────────────────────────────────────── */
+function fmtMonthYear(ts) {
+  return new Date(ts).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+function fmtFullDate(ts) {
+  return new Date(ts).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+function daysBetween(a, b) {
+  return Math.floor(Math.abs(b - a) / (1000 * 60 * 60 * 24));
+}
+function monthsBetween(a, b) {
+  const da = new Date(a), db = new Date(b);
+  return (db.getFullYear() - da.getFullYear()) * 12 + (db.getMonth() - da.getMonth());
+}
+function isSameDayOfYear(a, b) {
+  const da = new Date(a), db = new Date(b);
+  return da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
+}
+
 /* ─── CSS ───────────────────────────────────────────────────────────────── */
 const GLOBAL_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,700;1,400;1,500&family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap');
@@ -346,42 +535,19 @@ const GLOBAL_CSS = `
   }
   body.theme-light .leaflet-container { background: #f5f3ee !important; }
 
-  .leaflet-control-zoom { border: none !important; box-shadow: none !important; margin: 0 !important; }
-  .leaflet-left .leaflet-control-zoom { margin-left: 14px !important; }
-  .leaflet-control-zoom a {
-    background: rgba(11,10,17,0.92) !important;
-    color: rgba(232,228,217,0.9) !important;
-    border: 1px solid rgba(255,255,255,0.16) !important;
-    width: 44px !important; height: 44px !important; line-height: 44px !important;
-    font-size: 20px !important;
-    display: flex !important; align-items: center !important; justify-content: center !important;
-    backdrop-filter: blur(10px) !important; -webkit-backdrop-filter: blur(10px) !important;
-    transition: all 0.15s !important;
-    border-radius: 6px !important; margin-bottom: 6px !important;
-  }
-  .leaflet-control-zoom-in { border-radius: 6px !important; }
-  .leaflet-control-zoom-out { border-radius: 6px !important; margin-bottom: 0 !important; }
-  .leaflet-control-zoom a:hover { background: rgba(30,28,45,0.95) !important; color: #ffffff !important; }
+  .leaflet-control-zoom { display: none !important; }
   .leaflet-control-attribution {
     background: rgba(10,10,15,0.7) !important;
-    color: rgba(255,255,255,0.35) !important;
+    color: rgba(255,255,255,0.45) !important;
     font-size: 9px !important; padding: 2px 6px !important;
   }
-  .leaflet-control-attribution a { color: rgba(255,255,255,0.5) !important; }
+  .leaflet-control-attribution a { color: rgba(255,255,255,0.65) !important; }
   .leaflet-popup-content-wrapper, .leaflet-popup-tip-container { display: none !important; }
 
-  body.theme-light .leaflet-control-zoom a {
-    background: rgba(252,250,247,0.96) !important;
-    color: #1a1814 !important;
-    border-color: rgba(0,0,0,0.18) !important;
-  }
-  body.theme-light .leaflet-control-zoom a:hover {
-    background: rgba(232,228,217,0.98) !important; color: #000 !important;
-  }
   body.theme-light .leaflet-control-attribution {
-    background: rgba(252,250,247,0.85) !important; color: rgba(26,24,20,0.65) !important;
+    background: rgba(252,250,247,0.92) !important; color: rgba(26,24,20,0.7) !important;
   }
-  body.theme-light .leaflet-control-attribution a { color: rgba(26,24,20,0.85) !important; }
+  body.theme-light .leaflet-control-attribution a { color: rgba(26,24,20,0.9) !important; }
 
   @keyframes gps-pulse  { 0%,100%{transform:scale(1);opacity:0.5} 50%{transform:scale(2.5);opacity:0} }
   @keyframes fadeUp     { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
@@ -392,6 +558,7 @@ const GLOBAL_CSS = `
   @keyframes slideDown  { from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
   @keyframes pulseRing  { 0%{transform:scale(1);opacity:0.7} 100%{transform:scale(2.4);opacity:0} }
   @keyframes slideUpIn  { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes sealStamp  { 0%{opacity:0;transform:scale(0.6) rotate(-8deg)} 60%{opacity:1;transform:scale(1.08) rotate(0deg)} 100%{opacity:1;transform:scale(1) rotate(0deg)} }
 
   textarea { resize: none; }
   ::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -487,15 +654,40 @@ const GLOBAL_CSS = `
 
   .yr-pin-card { position: fixed; z-index: 300; animation: popIn 0.25s ease; }
 
+  /* Time travel slider */
+  .yr-slider-track { -webkit-appearance: none; appearance: none; width: 100%; height: 4px; background: transparent; outline: none; pointer-events: none; position: absolute; }
+  .yr-slider-track::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: #c084fc; border: 2px solid rgba(255,255,255,0.9);
+    cursor: pointer; pointer-events: auto;
+    box-shadow: 0 2px 8px rgba(192,132,252,0.6);
+  }
+  .yr-slider-track::-moz-range-thumb {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: #c084fc; border: 2px solid rgba(255,255,255,0.9);
+    cursor: pointer; pointer-events: auto;
+    box-shadow: 0 2px 8px rgba(192,132,252,0.6);
+  }
+  body.theme-light .yr-slider-track::-webkit-slider-thumb { background: #6d28d9; border-color: #fff; }
+  body.theme-light .yr-slider-track::-moz-range-thumb { background: #6d28d9; border-color: #fff; }
+
+  /* Paper texture for share card */
+  .yr-paper {
+    background-image:
+      radial-gradient(circle at 20% 30%, rgba(0,0,0,0.018) 1px, transparent 1px),
+      radial-gradient(circle at 70% 60%, rgba(0,0,0,0.022) 1px, transparent 1px),
+      radial-gradient(circle at 40% 80%, rgba(0,0,0,0.015) 1px, transparent 1px),
+      radial-gradient(circle at 90% 20%, rgba(0,0,0,0.018) 1px, transparent 1px);
+    background-size: 25px 25px, 30px 30px, 35px 35px, 40px 40px;
+  }
+
   @media screen and (max-width: 768px) {
     .yr-tool-btn { width: 46px; height: 46px; font-size: 17px; border-radius: 10px; }
-    .leaflet-control-zoom a { width: 46px !important; height: 46px !important; line-height: 46px !important; font-size: 22px !important; border-radius: 10px !important; }
-    .leaflet-left .leaflet-control-zoom { margin-left: 10px !important; }
     .yr-mood-chip { padding: 9px 16px; font-size: 13.5px; min-height: 40px; }
   }
   @media screen and (max-width: 380px) {
     .yr-tool-btn { width: 44px; height: 44px; }
-    .leaflet-control-zoom a { width: 44px !important; height: 44px !important; line-height: 44px !important; }
   }
 
   input, textarea { font-size: 16px !important; }
@@ -504,20 +696,20 @@ const GLOBAL_CSS = `
 /* ─── Theme tokens ──────────────────────────────────────────────────────── */
 function useTheme(isDark) {
   return {
-    panelBg:      isDark ? "rgba(11,10,17,0.97)"     : "rgba(253,251,247,0.99)",
-    panelBorder:  isDark ? "rgba(255,255,255,0.12)"  : "rgba(0,0,0,0.16)",
+    panelBg:      isDark ? "rgba(11,10,17,0.97)"     : "#ffffff",
+    panelBorder:  isDark ? "rgba(255,255,255,0.12)"  : "rgba(0,0,0,0.22)",
     textPrimary:  isDark ? "#ffffff"                 : "#0a0908",
-    textSec:      isDark ? "rgba(232,228,217,0.92)"  : "rgba(10,9,8,0.88)",
-    textMuted:    isDark ? "rgba(232,228,217,0.62)"  : "rgba(10,9,8,0.62)",
-    textFaint:    isDark ? "rgba(232,228,217,0.45)"  : "rgba(10,9,8,0.48)",
-    toolBg:       isDark ? "rgba(11,10,17,0.92)"     : "rgba(253,251,247,0.96)",
-    toolBorder:   isDark ? "rgba(255,255,255,0.16)"  : "rgba(0,0,0,0.18)",
+    textSec:      isDark ? "rgba(232,228,217,0.92)"  : "rgba(10,9,8,0.92)",
+    textMuted:    isDark ? "rgba(232,228,217,0.62)"  : "rgba(10,9,8,0.7)",
+    textFaint:    isDark ? "rgba(232,228,217,0.45)"  : "rgba(10,9,8,0.55)",
+    toolBg:       isDark ? "rgba(11,10,17,0.92)"     : "#ffffff",
+    toolBorder:   isDark ? "rgba(255,255,255,0.16)"  : "rgba(0,0,0,0.22)",
     toolColor:    isDark ? "rgba(232,228,217,0.92)"  : "#0a0908",
     headerGrad:   isDark
       ? "linear-gradient(to bottom,rgba(10,10,15,0.95) 0%,rgba(10,10,15,0.5) 60%,transparent 100%)"
-      : "linear-gradient(to bottom,rgba(253,251,247,0.97) 0%,rgba(253,251,247,0.5) 60%,transparent 100%)",
-    legendChipBg:     isDark ? "rgba(11,10,17,0.85)"    : "rgba(253,251,247,0.96)",
-    legendChipBorder: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.14)",
+      : "linear-gradient(to bottom,rgba(245,243,238,0.98) 0%,rgba(245,243,238,0.6) 60%,transparent 100%)",
+    legendChipBg:     isDark ? "rgba(11,10,17,0.85)"    : "#ffffff",
+    legendChipBorder: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.2)",
     moods:        getMoods(isDark),
     isDark,
   };
@@ -550,7 +742,7 @@ function Toast({ msg, isDark }) {
   if (!msg) return null;
   return (
     <div style={{
-      position: "fixed", bottom: "max(26px, env(safe-area-inset-bottom, 26px))",
+      position: "fixed", bottom: "max(86px, calc(env(safe-area-inset-bottom, 0px) + 86px))",
       left: "50%", transform: "translateX(-50%)",
       background: isDark ? "rgba(11,10,17,0.96)" : "rgba(253,251,247,0.98)",
       backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
@@ -567,10 +759,57 @@ function Toast({ msg, isDark }) {
   );
 }
 
-/* ─── Writing modal ─────────────────────────────────────────────────────── */
-function WritingModal({ coords, onSave, onCancel, isDark }) {
+/* ─── Seal SVG component ────────────────────────────────────────────────── */
+function SealGlyph({ pin, color, size = 88, animate = false }) {
+  const seed = useMemo(
+    () => makeSeed(pin.lat, pin.lng, pin.createdAt || 0, pin.city || ""),
+    [pin.lat, pin.lng, pin.createdAt, pin.city]
+  );
+  const seal = useMemo(() => generateSeal(seed, color, size), [seed, color, size]);
+  return (
+    <svg
+      width={size} height={size} viewBox={`0 0 ${size} ${size}`}
+      style={{ animation: animate ? "sealStamp 0.6s ease-out" : "none", display: "block" }}
+    >
+      <defs>
+        <filter id={`seal-rough-${seed}`} x="-20%" y="-20%" width="140%" height="140%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed={seed % 100} />
+          <feDisplacementMap in="SourceGraphic" scale="1.2" />
+        </filter>
+      </defs>
+      <path
+        d={seal.path}
+        fill={color}
+        fillOpacity="0.18"
+        stroke={color}
+        strokeWidth="1.6"
+        strokeOpacity="0.85"
+        filter={`url(#seal-rough-${seed})`}
+      />
+      {seal.marks.map((m, i) => (
+        <line
+          key={i}
+          x1={m.x1} y1={m.y1} x2={m.x2} y2={m.y2}
+          stroke={color} strokeWidth="1.4" strokeOpacity="0.7" strokeLinecap="round"
+          filter={`url(#seal-rough-${seed})`}
+        />
+      ))}
+      <circle cx={seal.dot.x} cy={seal.dot.y} r="1.4" fill={color} fillOpacity="0.85" />
+    </svg>
+  );
+}
+
+/* ─── Writing modal (also handles edit) ─────────────────────────────────── */
+function WritingModal({ coords, existingPin, onSave, onCancel, isDark, anniversaryHint }) {
   const T = useTheme(isDark);
-  const [draft, setDraft] = useState({ title: "", body: "", mood: "wonder", customMood: "" });
+  const isEdit = !!existingPin;
+  const [draft, setDraft] = useState(() => existingPin ? {
+    title: existingPin.title,
+    body: existingPin.body,
+    mood: existingPin.mood,
+    customMood: existingPin.customMood || "",
+  } : { title: "", body: "", mood: "wonder", customMood: "" });
+
   const mood = T.moods.find((m) => m.key === draft.mood) ?? T.moods[0];
   const valid = draft.title.trim() && draft.body.trim() && (draft.mood !== "other" || draft.customMood.trim());
 
@@ -578,16 +817,30 @@ function WritingModal({ coords, onSave, onCancel, isDark }) {
     if (!valid) return;
     haptic("success"); playSound("plant");
     const moodLabel = draft.mood === "other" ? draft.customMood.trim() : mood.label;
-    onSave({
-      id: Date.now().toString(),
-      lat: coords.lat, lng: coords.lng,
-      title: draft.title.trim(), body: draft.body.trim(),
-      mood: draft.mood, customMood: draft.mood === "other" ? draft.customMood.trim() : "",
-      moodLabel, moodColor: mood.color,
-      date: new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
-      createdAt: Date.now(),
-      appVersion: APP_VERSION,
-    });
+    if (isEdit) {
+      onSave({
+        ...existingPin,
+        title: draft.title.trim(),
+        body: draft.body.trim(),
+        mood: draft.mood,
+        customMood: draft.mood === "other" ? draft.customMood.trim() : "",
+        moodLabel,
+        moodColor: mood.color,
+        editedAt: Date.now(),
+      });
+    } else {
+      onSave({
+        id: Date.now().toString(),
+        lat: coords.lat, lng: coords.lng,
+        title: draft.title.trim(), body: draft.body.trim(),
+        mood: draft.mood, customMood: draft.mood === "other" ? draft.customMood.trim() : "",
+        moodLabel, moodColor: mood.color,
+        date: new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
+        createdAt: Date.now(),
+        appVersion: APP_VERSION,
+        city: "", country: "",
+      });
+    }
   };
 
   return (
@@ -600,13 +853,26 @@ function WritingModal({ coords, onSave, onCancel, isDark }) {
         boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.7)" : "0 24px 64px rgba(0,0,0,0.22)",
       }}>
         <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 500, color: T.textPrimary, letterSpacing: "0.02em", marginBottom: 4 }}>
-          plant a thought here
+          {isEdit ? "edit this memory" : "plant a thought here"}
         </div>
-        {coords && (
-          <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.14em", marginBottom: 20, fontWeight: 500 }}>
-            {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
+        {(coords || existingPin) && (
+          <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.14em", marginBottom: anniversaryHint ? 12 : 20, fontWeight: 500 }}>
+            {(coords || existingPin).lat.toFixed(5)}, {(coords || existingPin).lng.toFixed(5)}
           </div>
         )}
+
+        {anniversaryHint && !isEdit && (
+          <div style={{
+            background: isDark ? "rgba(168,85,247,0.1)" : "rgba(109,40,217,0.07)",
+            border: `1px solid ${isDark ? "rgba(168,85,247,0.3)" : "rgba(109,40,217,0.25)"}`,
+            borderLeft: `3px solid ${isDark ? "rgba(168,85,247,0.7)" : "rgba(109,40,217,0.6)"}`,
+            borderRadius: "0 6px 6px 0", padding: "10px 14px", marginBottom: 18,
+            fontFamily: "'Lora',serif", fontSize: 12.5, color: T.textSec, fontStyle: "italic", lineHeight: 1.6,
+          }}>
+            ✦ You were here before — {anniversaryHint}
+          </div>
+        )}
+
         <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.22em", textTransform: "uppercase", marginBottom: 10, fontWeight: 600 }}>mood</div>
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: draft.mood === "other" ? 10 : 18 }}>
           {T.moods.map((m) => (
@@ -623,7 +889,7 @@ function WritingModal({ coords, onSave, onCancel, isDark }) {
           ))}
         </div>
         {draft.mood === "other" && (
-          <input autoFocus placeholder="how are you feeling?" value={draft.customMood}
+          <input autoFocus={!isEdit} placeholder="how are you feeling?" value={draft.customMood}
             onChange={(e) => setDraft((d) => ({ ...d, customMood: e.target.value }))}
             style={{
               width: "100%", background: "transparent", border: "none",
@@ -634,7 +900,7 @@ function WritingModal({ coords, onSave, onCancel, isDark }) {
             }}
           />
         )}
-        <input autoFocus={draft.mood !== "other"} placeholder="Give this moment a name…" value={draft.title}
+        <input autoFocus={!isEdit && draft.mood !== "other"} placeholder="Give this moment a name…" value={draft.title}
           onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
           style={{
             width: "100%", background: "transparent", border: "none",
@@ -659,7 +925,7 @@ function WritingModal({ coords, onSave, onCancel, isDark }) {
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button onClick={() => { haptic("light"); onCancel(); }}
             style={{ background: "transparent", border: `1px solid ${T.panelBorder}`, color: T.textSec, padding: "10px 20px", borderRadius: 6, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.1em", minHeight: 44, fontWeight: 500 }}
-          >discard</button>
+          >{isEdit ? "cancel" : "discard"}</button>
           <button onClick={handleSave} disabled={!valid}
             style={{
               background: valid ? `${mood.color}28` : "transparent",
@@ -670,7 +936,7 @@ function WritingModal({ coords, onSave, onCancel, isDark }) {
               fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.12em",
               minHeight: 44, fontWeight: 700,
             }}
-          >plant it ✦</button>
+          >{isEdit ? "save changes ✦" : "plant it ✦"}</button>
         </div>
       </div>
     </Overlay>
@@ -716,7 +982,7 @@ function ForgetModal({ pin, onConfirm, onCancel, isDark }) {
 }
 
 /* ─── Export / Import modal ─────────────────────────────────────────────── */
-function ExportImportModal({ pins, onImport, onClose, isDark }) {
+function ExportImportModal({ pins, onImport, onClose, onExported, isDark, lastBackupAt }) {
   const T = useTheme(isDark);
   const [tab, setTab] = useState("export");
   const [importText, setImportText] = useState("");
@@ -734,6 +1000,7 @@ function ExportImportModal({ pins, onImport, onClose, isDark }) {
     a.href = url; a.download = `yearning-memories-${new Date().toISOString().split("T")[0]}.json`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    onExported?.();
   };
 
   const handleFileImport = (e) => {
@@ -771,6 +1038,7 @@ function ExportImportModal({ pins, onImport, onClose, isDark }) {
   };
 
   const accent = isDark ? "#a855f7" : "#6d28d9";
+  const daysSinceBackup = lastBackupAt ? daysBetween(lastBackupAt, Date.now()) : null;
 
   return (
     <Overlay zIndex={300} onClose={onClose}>
@@ -810,16 +1078,21 @@ function ExportImportModal({ pins, onImport, onClose, isDark }) {
 
         {tab === "export" ? (
           <div>
-            <div style={{ fontFamily: "'Lora',serif", fontSize: 14, color: T.textSec, lineHeight: 1.8, fontStyle: "italic", marginBottom: 20 }}>
+            <div style={{ fontFamily: "'Lora',serif", fontSize: 14, color: T.textSec, lineHeight: 1.8, fontStyle: "italic", marginBottom: 16 }}>
               Download all your memories as a JSON file. You can import this file later to restore your memories, or move them to another device.
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, background: `${accent}10`, border: `1px solid ${accent}30`, borderRadius: 6, padding: "12px 16px", marginBottom: 22 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, background: `${accent}10`, border: `1px solid ${accent}30`, borderRadius: 6, padding: "12px 16px", marginBottom: 14 }}>
               <div style={{ fontSize: 24, color: accent }}>◈</div>
               <div>
                 <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, color: T.textPrimary, fontWeight: 500 }}>{pins.length} {pins.length === 1 ? "memory" : "memories"}</div>
                 <div style={{ fontFamily: "'Lora',serif", fontSize: 12, color: T.textMuted, fontStyle: "italic" }}>ready to export</div>
               </div>
             </div>
+            {lastBackupAt && (
+              <div style={{ fontFamily: "'Lora',serif", fontSize: 12, color: T.textMuted, fontStyle: "italic", marginBottom: 16, letterSpacing: "0.04em" }}>
+                Last backup: {daysSinceBackup === 0 ? "today" : daysSinceBackup === 1 ? "yesterday" : `${daysSinceBackup} days ago`}
+              </div>
+            )}
             <button onClick={handleExport} disabled={pins.length === 0} style={{
               width: "100%", padding: "13px 0", borderRadius: 6,
               background: pins.length > 0 ? `${accent}22` : "transparent",
@@ -918,8 +1191,351 @@ function TipJarModal({ onClose, isDark }) {
   );
 }
 
+/* ─── Memory search modal (full-text) ───────────────────────────────────── */
+function MemorySearchModal({ pins, onSelect, onClose, isDark }) {
+  const T = useTheme(isDark);
+  const [query, setQuery] = useState("");
+  const accent = isDark ? "#a855f7" : "#6d28d9";
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return pins.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 30);
+    return pins.filter((p) => {
+      const hay = `${p.title} ${p.body} ${p.moodLabel || ""} ${p.city || ""} ${p.country || ""}`.toLowerCase();
+      return hay.includes(q);
+    }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }, [pins, query]);
+
+  return (
+    <Overlay zIndex={300} onClose={onClose}>
+      <div className="yr-modal" onClick={(e) => e.stopPropagation()} style={{
+        width: 480, maxWidth: "100%", maxHeight: "calc(100dvh - 40px)", display: "flex", flexDirection: "column",
+        background: T.panelBg, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+        border: `1px solid ${accent}33`, borderTop: `2px solid ${accent}`,
+        borderRadius: "0 0 8px 8px", padding: "26px 26px 16px", position: "relative",
+        boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.7)" : "0 24px 64px rgba(0,0,0,0.22)",
+      }}>
+        <button onClick={() => { haptic("light"); onClose(); }} style={{ position: "absolute", top: 14, right: 16, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 4 }} aria-label="Close">×</button>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 8, fontWeight: 600 }}>search memories</div>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, color: T.textPrimary, marginBottom: 16, fontWeight: 500, fontStyle: "italic" }}>
+          what are you looking for…
+        </div>
+        <input
+          autoFocus value={query} onChange={(e) => setQuery(e.target.value)}
+          placeholder="a word, a feeling, a place…"
+          style={{
+            width: "100%", background: "transparent", border: "none",
+            borderBottom: `1px solid ${query ? accent : T.panelBorder}`,
+            padding: "10px 0", marginBottom: 14,
+            color: T.textPrimary, fontFamily: "'Playfair Display',serif",
+            fontStyle: "italic", outline: "none", letterSpacing: "0.02em", fontSize: 17,
+          }}
+        />
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 11, color: T.textMuted, letterSpacing: "0.16em", marginBottom: 10, fontStyle: "italic", fontWeight: 500 }}>
+          {query ? `${results.length} found` : `your last ${Math.min(30, results.length)} memories`}
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", marginRight: -8, paddingRight: 8 }}>
+          {results.length === 0 && query && (
+            <div style={{ fontFamily: "'Lora',serif", fontSize: 13.5, color: T.textMuted, fontStyle: "italic", padding: "20px 0", textAlign: "center" }}>
+              nothing matches that — yet.
+            </div>
+          )}
+          {results.map((p) => {
+            const moodColor = p.moodColor || getMoodByKey(p.mood, isDark).color;
+            const place = [p.city, p.country].filter(Boolean).join(", ");
+            return (
+              <button key={p.id} onClick={() => { haptic("light"); onSelect(p); }} style={{
+                width: "100%", textAlign: "left", padding: "12px 0",
+                background: "transparent", border: "none", borderBottom: `1px solid ${T.panelBorder}`,
+                cursor: "pointer", display: "block",
+              }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 3 }}>
+                  <div style={{ width: 7, height: 7, borderRadius: "50%", background: moodColor, flexShrink: 0, boxShadow: `0 0 4px ${moodColor}aa` }} />
+                  <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15.5, color: T.textPrimary, fontWeight: 500, flex: 1, lineHeight: 1.3 }}>{p.title}</div>
+                </div>
+                <div style={{ fontFamily: "'Lora',serif", fontSize: 12, color: T.textSec, fontStyle: "italic", lineHeight: 1.55, marginBottom: 4, paddingLeft: 15, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                  {p.body}
+                </div>
+                <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.1em", paddingLeft: 15, fontWeight: 500 }}>
+                  {p.date}{place ? ` · ${place}` : ""}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </Overlay>
+  );
+}
+
+/* ─── Share card modal ─────────────────────────────────────────────────── */
+function ShareCardModal({ pin, isDark, onClose }) {
+  const T = useTheme(isDark);
+  const cardRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [statusMsg, setStatusMsg] = useState("");
+
+  const moodColor = pin.moodColor || getMoodByKey(pin.mood, isDark).color;
+  const moodLabel = pin.moodLabel || getMoodByKey(pin.mood, isDark).label;
+  const place = [pin.city, pin.country].filter(Boolean).join(", ");
+
+  // Render the share card to canvas using SVG → image
+  const renderToCanvas = useCallback(async () => {
+    const W = 1080, H = 1350;
+    const canvas = document.createElement("canvas");
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext("2d");
+
+    // Paper background
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, "#faf6ee");
+    grad.addColorStop(1, "#f0e9d8");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Subtle paper noise
+    for (let i = 0; i < 800; i++) {
+      const x = Math.random() * W;
+      const y = Math.random() * H;
+      const r = Math.random() * 1.5;
+      ctx.fillStyle = `rgba(0,0,0,${0.015 + Math.random() * 0.025})`;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // Vignette
+    const vg = ctx.createRadialGradient(W/2, H/2, W*0.35, W/2, H/2, W*0.7);
+    vg.addColorStop(0, "rgba(0,0,0,0)");
+    vg.addColorStop(1, "rgba(0,0,0,0.06)");
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+
+    // Mood color band (top)
+    ctx.fillStyle = moodColor;
+    ctx.globalAlpha = 0.85;
+    ctx.fillRect(80, 80, 4, 80);
+    ctx.globalAlpha = 1;
+
+    // Mood label
+    ctx.fillStyle = moodColor;
+    ctx.font = "700 28px 'Lora', serif";
+    ctx.textAlign = "left";
+    ctx.fillText(moodLabel.toUpperCase(), 110, 130);
+
+    // Date subtle
+    ctx.fillStyle = "rgba(60,50,40,0.55)";
+    ctx.font = "italic 22px 'Lora', serif";
+    ctx.fillText(pin.date, 110, 165);
+
+    // Title (Playfair) — wrap
+    ctx.fillStyle = "#1a1410";
+    ctx.font = "500 64px 'Playfair Display', serif";
+    const wrapText = (text, x, y, maxW, lh) => {
+      const words = text.split(" ");
+      let line = "", yy = y, drawn = 0;
+      for (const w of words) {
+        const test = line + w + " ";
+        if (ctx.measureText(test).width > maxW && line) {
+          ctx.fillText(line.trim(), x, yy);
+          line = w + " "; yy += lh; drawn++;
+          if (drawn >= 3) { ctx.fillText(line.trim() + (words.indexOf(w) < words.length - 1 ? "…" : ""), x, yy); return yy + lh; }
+        } else line = test;
+      }
+      if (line) ctx.fillText(line.trim(), x, yy);
+      return yy + lh;
+    };
+    let yPos = wrapText(pin.title, 110, 260, W - 220, 78);
+
+    // Divider
+    ctx.strokeStyle = "rgba(60,50,40,0.25)";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(110, yPos + 20); ctx.lineTo(260, yPos + 20); ctx.stroke();
+    yPos += 70;
+
+    // Body (italic Lora) — wrap
+    ctx.fillStyle = "rgba(40,30,20,0.85)";
+    ctx.font = "italic 34px 'Lora', serif";
+    const wrapBody = (text, x, y, maxW, lh, maxLines) => {
+      const words = text.split(/\s+/);
+      let line = "", yy = y, drawn = 0;
+      for (let i = 0; i < words.length; i++) {
+        const w = words[i];
+        const test = line + w + " ";
+        if (ctx.measureText(test).width > maxW && line) {
+          ctx.fillText(line.trim(), x, yy);
+          line = w + " "; yy += lh; drawn++;
+          if (drawn >= maxLines - 1) {
+            // Last line — add ellipsis if needed
+            let last = line;
+            const remaining = words.slice(i + 1).join(" ");
+            if (remaining) {
+              while (ctx.measureText(last + "…").width > maxW && last.length > 1) last = last.slice(0, -1);
+              ctx.fillText(last.trim() + "…", x, yy);
+            } else {
+              ctx.fillText(line.trim(), x, yy);
+            }
+            return yy + lh;
+          }
+        } else line = test;
+      }
+      if (line) ctx.fillText(line.trim(), x, yy);
+      return yy + lh;
+    };
+    yPos = wrapBody(pin.body, 110, yPos, W - 220, 50, 10);
+
+    // Place line
+    if (place) {
+      ctx.fillStyle = "rgba(60,50,40,0.6)";
+      ctx.font = "500 24px 'Lora', serif";
+      ctx.fillText(place, 110, yPos + 30);
+      yPos += 55;
+    }
+
+    // Coords
+    ctx.fillStyle = "rgba(60,50,40,0.45)";
+    ctx.font = "500 18px 'Lora', serif";
+    ctx.fillText(`${pin.lat.toFixed(4)}, ${pin.lng.toFixed(4)}`, 110, yPos + 30);
+
+    // Generate seal SVG and draw to canvas
+    const seed = makeSeed(pin.lat, pin.lng, pin.createdAt || 0, pin.city || "");
+    const sealData = generateSeal(seed, moodColor, 200);
+    const sealSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+      <path d="${sealData.path}" fill="${moodColor}" fill-opacity="0.22" stroke="${moodColor}" stroke-width="2.4" stroke-opacity="0.85"/>
+      ${sealData.marks.map(m => `<line x1="${m.x1}" y1="${m.y1}" x2="${m.x2}" y2="${m.y2}" stroke="${moodColor}" stroke-width="2.2" stroke-opacity="0.75" stroke-linecap="round"/>`).join("")}
+      <circle cx="${sealData.dot.x}" cy="${sealData.dot.y}" r="2.2" fill="${moodColor}" fill-opacity="0.9"/>
+    </svg>`;
+    const sealImg = new Image();
+    const sealUrl = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(sealSvg)));
+    await new Promise((res, rej) => { sealImg.onload = res; sealImg.onerror = rej; sealImg.src = sealUrl; });
+    ctx.save();
+    ctx.translate(W - 240, H - 320);
+    ctx.rotate(-0.08);
+    ctx.globalAlpha = 0.92;
+    ctx.drawImage(sealImg, 0, 0, 180, 180);
+    ctx.restore();
+
+    // Footer — branding
+    ctx.fillStyle = "rgba(40,30,20,0.55)";
+    ctx.font = "700 20px 'Lora', serif";
+    ctx.textAlign = "left";
+    ctx.fillText("YEARNINGMAP", 110, H - 100);
+    ctx.fillStyle = "rgba(60,50,40,0.5)";
+    ctx.font = "italic 22px 'Lora', serif";
+    ctx.fillText("leave a part of yourself somewhere", 110, H - 70);
+
+    return canvas;
+  }, [pin, moodColor, moodLabel, place]);
+
+  const downloadShare = async () => {
+    haptic("medium");
+    setBusy(true); setStatusMsg("");
+    try {
+      const canvas = await renderToCanvas();
+      const blob = await new Promise((res) => canvas.toBlob(res, "image/png", 0.95));
+      if (!blob) throw new Error("could not render");
+
+      // Try Web Share API with file first (mobile)
+      const file = new File([blob], `yearning-${pin.id}.png`, { type: "image/png" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: pin.title });
+          setStatusMsg("shared ✦");
+          setBusy(false);
+          return;
+        } catch (e) {
+          // user cancelled or share unsupported — fall through to download
+        }
+      }
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `yearning-${pin.id}.png`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setStatusMsg("saved to your device ✦");
+    } catch (err) {
+      console.error(err);
+      setStatusMsg("could not generate card");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const accent = isDark ? "#a855f7" : "#6d28d9";
+
+  return (
+    <Overlay zIndex={400} onClose={onClose}>
+      <div className="yr-modal" onClick={(e) => e.stopPropagation()} style={{
+        width: 440, maxWidth: "100%", maxHeight: "calc(100dvh - 40px)", overflowY: "auto",
+        background: T.panelBg, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+        border: `1px solid ${moodColor}40`, borderTop: `2px solid ${moodColor}`,
+        borderRadius: "0 0 8px 8px", padding: "26px 26px 22px", position: "relative",
+        boxShadow: isDark ? "0 24px 64px rgba(0,0,0,0.7)" : "0 24px 64px rgba(0,0,0,0.22)",
+      }}>
+        <button onClick={() => { haptic("light"); onClose(); }} style={{ position: "absolute", top: 14, right: 16, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 4 }} aria-label="Close">×</button>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 8, fontWeight: 600 }}>share memory</div>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 20, color: T.textPrimary, marginBottom: 18, fontWeight: 500 }}>a page from your diary</div>
+
+        {/* Preview card — paper feel */}
+        <div ref={cardRef} className="yr-paper" style={{
+          background: "linear-gradient(180deg, #faf6ee 0%, #f0e9d8 100%)",
+          borderRadius: 4,
+          padding: "22px 22px 18px",
+          marginBottom: 18,
+          boxShadow: "0 8px 32px rgba(40,30,20,0.25), inset 0 0 60px rgba(60,40,20,0.04)",
+          position: "relative", overflow: "hidden",
+        }}>
+          <div style={{ width: 3, height: 32, background: moodColor, marginBottom: 10, opacity: 0.85 }} />
+          <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: moodColor, letterSpacing: "0.24em", textTransform: "uppercase", fontWeight: 700, marginBottom: 4 }}>
+            {moodLabel}
+          </div>
+          <div style={{ fontFamily: "'Lora',serif", fontSize: 11.5, color: "rgba(60,50,40,0.55)", fontStyle: "italic", marginBottom: 14 }}>{pin.date}</div>
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, color: "#1a1410", fontWeight: 500, lineHeight: 1.25, marginBottom: 14 }}>{pin.title}</div>
+          <div style={{ width: 60, height: 1, background: "rgba(60,50,40,0.25)", marginBottom: 14 }} />
+          <div style={{
+            fontFamily: "'Lora',serif", fontSize: 13, color: "rgba(40,30,20,0.85)",
+            fontStyle: "italic", lineHeight: 1.7, marginBottom: 14,
+            display: "-webkit-box", WebkitLineClamp: 5, WebkitBoxOrient: "vertical", overflow: "hidden",
+          }}>{pin.body}</div>
+          {place && (
+            <div style={{ fontFamily: "'Lora',serif", fontSize: 11.5, color: "rgba(60,50,40,0.7)", fontWeight: 600, letterSpacing: "0.04em" }}>{place}</div>
+          )}
+          <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: "rgba(60,50,40,0.5)", marginTop: 2, fontWeight: 500 }}>
+            {pin.lat.toFixed(4)}, {pin.lng.toFixed(4)}
+          </div>
+
+          {/* Seal in corner */}
+          <div style={{ position: "absolute", right: 16, bottom: 50, transform: "rotate(-6deg)", opacity: 0.92 }}>
+            <SealGlyph pin={pin} color={moodColor} size={70} animate />
+          </div>
+
+          {/* Footer */}
+          <div style={{ marginTop: 18, paddingTop: 12, borderTop: "1px solid rgba(60,50,40,0.15)", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <div style={{ fontFamily: "'Lora',serif", fontSize: 9.5, color: "rgba(40,30,20,0.55)", letterSpacing: "0.18em", fontWeight: 700 }}>YEARNINGMAP</div>
+            <div style={{ fontFamily: "'Lora',serif", fontSize: 9, color: "rgba(60,50,40,0.5)", fontStyle: "italic" }}>leave a part of yourself somewhere</div>
+          </div>
+        </div>
+
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 11.5, color: T.textMuted, fontStyle: "italic", lineHeight: 1.6, marginBottom: 14 }}>
+          Each memory has its own seal — generated from where and when you planted it. No two are alike.
+        </div>
+
+        <button onClick={downloadShare} disabled={busy} style={{
+          width: "100%", padding: "13px 0", borderRadius: 6,
+          background: `${accent}22`, border: `1px solid ${accent}`,
+          color: accent, fontFamily: "'Lora',serif", fontSize: 13.5, letterSpacing: "0.14em",
+          cursor: busy ? "wait" : "pointer", fontWeight: 700, minHeight: 48,
+        }}>
+          {busy ? "preparing…" : "↗ share or save card"}
+        </button>
+        {statusMsg && (
+          <div style={{ fontFamily: "'Lora',serif", fontSize: 12, color: T.textSec, fontStyle: "italic", marginTop: 10, textAlign: "center" }}>{statusMsg}</div>
+        )}
+      </div>
+    </Overlay>
+  );
+}
+
 /* ─── Help modal ────────────────────────────────────────────────────────── */
-function HelpModal({ onClose, isDark, onEnableNotifications, notifPermission, onShowChangelog, pinCount }) {
+function HelpModal({ onClose, isDark, onEnableNotifications, notifPermission, onShowChangelog, pinCount, listeningDays }) {
   const T = useTheme(isDark);
   const cyan = isDark ? "#22d3ee" : "#0e7490";
   const purple = isDark ? "#c084fc" : "#6d28d9";
@@ -930,9 +1546,11 @@ function HelpModal({ onClose, isDark, onEnableNotifications, notifPermission, on
     { icon: "◎", col: cyan,    label: "Locate Me",      desc: "Flies to your GPS position and shows a live pulse marker." },
     { icon: "✦", col: purple,  label: "Plant Here",     desc: "Plants a pin at your GPS location, or at the map center if unavailable." },
     { icon: "+", col: T.textPrimary, label: "Tap Anywhere",   desc: "Enter placing mode — tap any spot, or long-press for an instant plant." },
+    { icon: "⌕", col: purple,  label: "Search Memories", desc: "Full-text search through every memory you've planted — title, body, mood, place." },
+    { icon: "⌘", col: T.textSec, label: "Heatmap",        desc: "Toggle a soft density view that shows where you think the most." },
     { icon: "⌂", col: T.textSec,     label: "Reset View",     desc: "Flies back to the world view at default zoom." },
     { icon: "↝", col: T.textSec,     label: "Random Memory",  desc: "Jumps to a random memory you've planted." },
-    { icon: "◑", col: gold,    label: "Light / Dark",   desc: "Toggle between dark and light map themes." },
+    { icon: "◑", col: gold,    label: "Light / Dark",   desc: "Toggle between dark and light map themes. Your choice persists across sessions." },
     { icon: "⬇", col: T.textSec,     label: "Export / Import",desc: "Back up your memories to a file, or restore from a previous export." },
     { icon: "☕", col: gold,    label: "Support",        desc: "Keep Yearning free with a small tip." },
     { icon: "i", col: cyan,    label: "Help Center",    desc: "This panel — your guide lives here permanently.", italic: true },
@@ -960,6 +1578,20 @@ function HelpModal({ onClose, isDark, onEnableNotifications, notifPermission, on
         <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 14, fontWeight: 600 }}>help center</div>
         <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 500, color: T.textPrimary, marginBottom: 22 }}>how to use yearning</div>
 
+        {/* Listening stat — quiet, not gamified */}
+        {listeningDays > 0 && (
+          <div style={{
+            background: isDark ? "rgba(168,85,247,0.07)" : "rgba(109,40,217,0.05)",
+            border: `1px solid ${isDark ? "rgba(168,85,247,0.22)" : "rgba(109,40,217,0.18)"}`,
+            borderLeft: `3px solid ${purple}`,
+            borderRadius: "0 6px 6px 0", padding: "11px 14px", marginBottom: 22,
+          }}>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: "italic", fontSize: 14.5, color: T.textPrimary, lineHeight: 1.45 }}>
+              You've been listening to yourself for <strong style={{ color: purple, fontStyle: "normal", fontWeight: 600 }}>{listeningDays} {listeningDays === 1 ? "day" : "days"}</strong>.
+            </div>
+          </div>
+        )}
+
         <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.26em", textTransform: "uppercase", marginBottom: 14, fontWeight: 600 }}>your tools</div>
         {tools.map(({ icon, col, label, desc, italic }) => (
           <div key={label} style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 14 }}>
@@ -979,6 +1611,22 @@ function HelpModal({ onClose, isDark, onEnableNotifications, notifPermission, on
           </div>
         ))}
 
+        {/* Editing memories */}
+        <div style={{ borderTop: `1px solid ${T.panelBorder}`, margin: "16px 0 14px" }} />
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.26em", textTransform: "uppercase", marginBottom: 8, fontWeight: 600 }}>editing memories</div>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: T.textSec, fontStyle: "italic", lineHeight: 1.75 }}>
+          For 24 hours after planting, you can edit a memory's title, body, or mood — for second thoughts and small fixes.
+          After that, the moment is set in stone. The location and time it was planted are never editable.
+        </div>
+
+        {/* Time travel */}
+        <div style={{ borderTop: `1px solid ${T.panelBorder}`, margin: "16px 0 14px" }} />
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.26em", textTransform: "uppercase", marginBottom: 8, fontWeight: 600 }}>time travel</div>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: T.textSec, fontStyle: "italic", lineHeight: 1.75 }}>
+          Drag the slider at the bottom to filter memories by date. See "March 2025" or "everything before I moved." Tap mood chips to combine — the map listens.
+        </div>
+
+        {/* Moods */}
         <div style={{ borderTop: `1px solid ${T.panelBorder}`, margin: "16px 0 14px" }} />
         <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.26em", textTransform: "uppercase", marginBottom: 11, fontWeight: 600 }}>moods</div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 4 }}>
@@ -1134,7 +1782,7 @@ function WhatsNewModal({ entries, isFirstAcknowledgement, onClose, isDark, pinCo
   );
 }
 
-/* ─── Update-available banner ───────────────────────────────────────────── */
+/* ─── Update banner ─────────────────────────────────────────────────────── */
 function UpdateBanner({ isDark, onApply, onDismiss }) {
   const T = useTheme(isDark);
   const cyan = isDark ? "#22d3ee" : "#0e7490";
@@ -1176,7 +1824,7 @@ function UpdateBanner({ isDark, onApply, onDismiss }) {
   );
 }
 
-/* ─── Onboarding welcome ────────────────────────────────────────────────── */
+/* ─── Welcome modal ─────────────────────────────────────────────────────── */
 function WelcomeModal({ onStartTour, onSkip }) {
   return (
     <div style={{
@@ -1227,7 +1875,7 @@ function FirstPlantNudge({ isDark, onPlantHere, onPlantWhere, onDismiss, hasLoca
   const purple = isDark ? "#a855f7" : "#6d28d9";
   return (
     <div style={{
-      position: "fixed", bottom: "max(60px, calc(env(safe-area-inset-bottom, 0px) + 60px))",
+      position: "fixed", bottom: "max(120px, calc(env(safe-area-inset-bottom, 0px) + 120px))",
       left: "50%", transform: "translateX(-50%)",
       background: T.panelBg, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
       border: `1px solid ${purple}50`, borderLeft: `3px solid ${purple}`,
@@ -1266,6 +1914,90 @@ function FirstPlantNudge({ isDark, onPlantHere, onPlantWhere, onDismiss, hasLoca
           }}>plant first thought →</button>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ─── Backup nudge ──────────────────────────────────────────────────────── */
+function BackupNudge({ isDark, daysAgo, onExport, onDismiss }) {
+  const T = useTheme(isDark);
+  const cyan = isDark ? "#22d3ee" : "#0e7490";
+  return (
+    <div style={{
+      position: "fixed", top: "max(72px, calc(env(safe-area-inset-top, 0px) + 72px))",
+      left: "50%", transform: "translateX(-50%)",
+      background: T.panelBg, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+      border: `1px solid ${cyan}55`, borderLeft: `3px solid ${cyan}`,
+      borderRadius: "0 8px 8px 0",
+      padding: "12px 16px 12px 14px", zIndex: 130,
+      animation: "fadeUp 0.4s ease",
+      width: "min(400px, calc(100vw - 28px))",
+      boxShadow: isDark ? "0 8px 32px rgba(0,0,0,0.55)" : "0 8px 32px rgba(0,0,0,0.18)",
+      display: "flex", alignItems: "center", gap: 12,
+    }}>
+      <div style={{ fontSize: 18, color: cyan, flexShrink: 0 }}>↓</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 14, color: T.textPrimary, fontWeight: 500, marginBottom: 2 }}>
+          you haven't backed up in {daysAgo} days
+        </div>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 12, color: T.textMuted, fontStyle: "italic", lineHeight: 1.5 }}>
+          export now for peace of mind ·˚
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+        <button onClick={onDismiss} style={{
+          background: "transparent", border: "none", color: T.textMuted,
+          fontFamily: "'Lora',serif", fontSize: 11, letterSpacing: "0.1em", cursor: "pointer",
+          padding: "8px 6px", minHeight: 36, fontWeight: 500,
+        }}>later</button>
+        <button onClick={onExport} style={{
+          background: `${cyan}22`, border: `1px solid ${cyan}`,
+          color: cyan, padding: "8px 14px", borderRadius: 5, cursor: "pointer",
+          fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.14em", fontWeight: 700, minHeight: 36,
+        }}>export</button>
+      </div>
+    </div>
+  );
+}
+
+/* ─── On This Day nudge ─────────────────────────────────────────────────── */
+function OnThisDayNudge({ pin, isDark, onView, onDismiss }) {
+  const T = useTheme(isDark);
+  const moodColor = pin.moodColor || getMoodByKey(pin.mood, isDark).color;
+  const years = new Date().getFullYear() - new Date(pin.createdAt).getFullYear();
+  const yearLabel = years === 1 ? "a year ago" : `${years} years ago`;
+
+  return (
+    <div style={{
+      position: "fixed", top: "max(72px, calc(env(safe-area-inset-top, 0px) + 72px))",
+      left: "50%", transform: "translateX(-50%)",
+      background: T.panelBg, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+      border: `1px solid ${moodColor}55`, borderLeft: `3px solid ${moodColor}`,
+      borderRadius: "0 8px 8px 0",
+      padding: "14px 18px 12px 16px", zIndex: 130,
+      animation: "slideUpIn 0.5s ease",
+      width: "min(420px, calc(100vw - 28px))",
+      boxShadow: isDark ? "0 8px 32px rgba(0,0,0,0.55)" : "0 8px 32px rgba(0,0,0,0.18)",
+    }}>
+      <button onClick={onDismiss} style={{ position: "absolute", top: 6, right: 10, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4 }} aria-label="Dismiss">×</button>
+      <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: moodColor, letterSpacing: "0.28em", textTransform: "uppercase", fontWeight: 700, marginBottom: 4 }}>on this day</div>
+      <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: "italic", fontSize: 15, color: T.textPrimary, fontWeight: 500, lineHeight: 1.4, marginBottom: 8, paddingRight: 20 }}>
+        {yearLabel}, you wrote here…
+      </div>
+      <button onClick={onView} style={{
+        width: "100%", background: "transparent", border: "none", textAlign: "left",
+        cursor: "pointer", padding: 0,
+      }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 14, color: T.textPrimary, fontWeight: 500, marginBottom: 3 }}>
+          {pin.title}
+        </div>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 12, color: T.textSec, fontStyle: "italic", lineHeight: 1.55, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+          {pin.body}
+        </div>
+        <div style={{ marginTop: 6, fontFamily: "'Lora',serif", fontSize: 11, color: moodColor, letterSpacing: "0.14em", fontWeight: 700 }}>
+          revisit →
+        </div>
+      </button>
     </div>
   );
 }
@@ -1327,7 +2059,7 @@ function TourOverlay({ step, total, onNext, onPrev, onSkip }) {
   );
 }
 
-/* ─── Search box ────────────────────────────────────────────────────────── */
+/* ─── Place search box ──────────────────────────────────────────────────── */
 function SearchBox({ isDark }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
@@ -1414,11 +2146,14 @@ function FoundPopup({ lat, lng, mapInstance }) {
 }
 
 /* ─── Pin card ──────────────────────────────────────────────────────────── */
-function PinCard({ pin, mapInstance, isDark, onClose, onForget }) {
+function PinCard({ pin, mapInstance, isDark, onClose, onForget, onEdit, onShare }) {
   const T = useTheme(isDark);
   const [pos, setPos] = useState({ left: 0, top: 0, width: 320 });
   const moodColor = pin.moodColor || getMoodByKey(pin.mood, isDark).color;
   const moodLabel = pin.moodLabel || getMoodByKey(pin.mood, isDark).label;
+  const place = [pin.city, pin.country].filter(Boolean).join(", ");
+  const editable = pin.createdAt && (Date.now() - pin.createdAt < EDIT_WINDOW_MS);
+  const editedAt = pin.editedAt;
 
   useEffect(() => {
     if (!mapInstance) return;
@@ -1427,7 +2162,7 @@ function PinCard({ pin, mapInstance, isDark, onClose, onForget }) {
       const cardW = Math.min(340, window.innerWidth - 28);
       let left = pt.x - cardW / 2;
       left = Math.max(14, Math.min(left, window.innerWidth - cardW - 14));
-      const cardEstHeight = 240;
+      const cardEstHeight = 280;
       let top = pt.y + 44;
       if (top + cardEstHeight > window.innerHeight - 20) top = Math.max(14, pt.y - cardEstHeight - 24);
       setPos({ left, top, width: cardW });
@@ -1445,7 +2180,7 @@ function PinCard({ pin, mapInstance, isDark, onClose, onForget }) {
         borderRadius: "0 8px 8px 0",
         padding: "18px 18px 14px",
         boxShadow: isDark ? "0 8px 32px rgba(0,0,0,0.55)" : "0 8px 32px rgba(0,0,0,0.18)",
-        maxHeight: "min(46vh, 360px)", overflowY: "auto",
+        maxHeight: "min(54vh, 420px)", overflowY: "auto",
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
           <div style={{ flex: 1, paddingRight: 10 }}>
@@ -1461,14 +2196,94 @@ function PinCard({ pin, mapInstance, isDark, onClose, onForget }) {
         <div style={{ fontFamily: "'Lora',serif", fontSize: 14, color: T.textSec, lineHeight: 1.85, fontStyle: "italic" }}>
           {pin.body}
         </div>
-        <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.panelBorder}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, letterSpacing: "0.06em", fontWeight: 500 }}>
+        {editedAt && (
+          <div style={{ marginTop: 8, fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, fontStyle: "italic", letterSpacing: "0.04em" }}>
+            edited {new Date(editedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+          </div>
+        )}
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.panelBorder}` }}>
+          {place && (
+            <div style={{ fontFamily: "'Lora',serif", fontSize: 11.5, color: T.textPrimary, letterSpacing: "0.06em", marginBottom: 2, fontWeight: 600 }}>
+              {place}
+            </div>
+          )}
+          <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, letterSpacing: "0.06em", fontWeight: 500, marginBottom: 10 }}>
             {pin.lat.toFixed(4)}, {pin.lng.toFixed(4)}
           </div>
-          <button onClick={() => { haptic("medium"); onForget(pin.id); }}
-            style={{ background: "transparent", border: "none", color: isDark ? "rgba(252,165,165,0.75)" : "rgba(185,28,28,0.85)", cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.1em", padding: "6px 0", minHeight: 32, fontWeight: 600 }}
-          >forget this</button>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+            <div style={{ display: "flex", gap: 12 }}>
+              {editable && (
+                <button onClick={() => { haptic("light"); onEdit(pin); }}
+                  style={{ background: "transparent", border: "none", color: isDark ? "#c084fc" : "#6d28d9", cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.1em", padding: "6px 0", minHeight: 32, fontWeight: 700 }}
+                >✎ edit</button>
+              )}
+              <button onClick={() => { haptic("light"); onShare(pin); }}
+                style={{ background: "transparent", border: "none", color: T.textPrimary, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.1em", padding: "6px 0", minHeight: 32, fontWeight: 600 }}
+              >↗ share</button>
+            </div>
+            <button onClick={() => { haptic("medium"); onForget(pin.id); }}
+              style={{ background: "transparent", border: "none", color: isDark ? "rgba(252,165,165,0.75)" : "rgba(185,28,28,0.85)", cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.1em", padding: "6px 0", minHeight: 32, fontWeight: 600 }}
+            >forget this</button>
+          </div>
+          {!editable && pin.createdAt && (
+            <div style={{ marginTop: 6, fontFamily: "'Lora',serif", fontSize: 9.5, color: T.textMuted, fontStyle: "italic", letterSpacing: "0.06em" }}>
+              edits closed · 24h window has passed
+            </div>
+          )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Time travel slider ───────────────────────────────────────────────── */
+function TimeSlider({ minTs, maxTs, range, setRange, isDark }) {
+  const T = useTheme(isDark);
+  const [minVal, maxVal] = range;
+  if (minTs >= maxTs) return null;
+
+  const pct = (v) => ((v - minTs) / (maxTs - minTs)) * 100;
+  const accent = isDark ? "#c084fc" : "#6d28d9";
+
+  return (
+    <div style={{
+      position: "fixed", bottom: "max(14px, calc(env(safe-area-inset-bottom, 0px) + 14px))",
+      left: "50%", transform: "translateX(-50%)",
+      width: "min(420px, calc(100vw - 240px))", zIndex: 100,
+      background: T.panelBg, backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
+      border: `1px solid ${T.panelBorder}`,
+      borderRadius: 8, padding: "9px 14px 12px",
+      boxShadow: isDark ? "0 4px 18px rgba(0,0,0,0.4)" : "0 4px 18px rgba(0,0,0,0.12)",
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 7, gap: 8 }}>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 9.5, color: T.textMuted, letterSpacing: "0.22em", textTransform: "uppercase", fontWeight: 600 }}>time travel</div>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 11.5, color: T.textPrimary, fontStyle: "italic", textAlign: "right" }}>
+          {fmtMonthYear(minVal)} — {fmtMonthYear(maxVal)}
+        </div>
+      </div>
+      <div style={{ position: "relative", height: 18 }}>
+        <div style={{ position: "absolute", left: 0, right: 0, top: 8, height: 3, background: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)", borderRadius: 2 }} />
+        <div style={{
+          position: "absolute", top: 8, height: 3, borderRadius: 2,
+          left: `${pct(minVal)}%`, right: `${100 - pct(maxVal)}%`,
+          background: accent, opacity: 0.7,
+        }} />
+        <input className="yr-slider-track" type="range"
+          min={minTs} max={maxTs} step={86400000} value={minVal}
+          onChange={(e) => {
+            const v = parseInt(e.target.value, 10);
+            if (v <= maxVal) setRange([v, maxVal]);
+          }}
+          style={{ top: 0, zIndex: 2 }}
+        />
+        <input className="yr-slider-track" type="range"
+          min={minTs} max={maxTs} step={86400000} value={maxVal}
+          onChange={(e) => {
+            const v = parseInt(e.target.value, 10);
+            if (v >= minVal) setRange([minVal, v]);
+          }}
+          style={{ top: 0, zIndex: 3 }}
+        />
       </div>
     </div>
   );
@@ -1476,710 +2291,913 @@ function PinCard({ pin, mapInstance, isDark, onClose, onForget }) {
 
 /* ─── Main component ────────────────────────────────────────────────────── */
 export default function Yearning() {
-  const mapContainerRef  = useRef(null);
-  const mapRef           = useRef(null);
-  const tileLayerRef     = useRef(null);
-  const markersRef       = useRef({});
-  const userMarkerRef    = useRef(null);
-  const leafletRef       = useRef(null);
-  const longPressTimer   = useRef(null);
-  const toastTimer       = useRef(null);
-  const pinchActiveRef   = useRef(false);
-  const lastTouchEndRef  = useRef(0);
+  const mapContainerRef = useRef(null);
+  const mapRef = useRef(null);
+  const tileLayerRef = useRef(null);
+  const markersRef = useRef([]);
+  const userMarkerRef = useRef(null);
+  const heatmapMarkersRef = useRef([]);
+  const leafletRef = useRef(null);
+  const longPressTimer = useRef(null);
+  const toastTimer = useRef(null);
+  const pinchActiveRef = useRef(false);
+  const lastTouchEndRef = useRef(0);
   const locationWatchRef = useRef(null);
   const lastNotifTimeRef = useRef(0);
-  const lastNotifLocRef  = useRef(null);
+  const lastNotifLocRef = useRef(null);
+  const geocodeQueueRef = useRef([]);
+  const geocodingRef = useRef(false);
 
-  const [pins,             setPins]             = useState(loadPinsWithMigration);
-  const [selectedPinId,    setSelectedPinId]    = useState(null);
-  const [mode,             setMode]             = useState("view");
-  const [placingCoords,    setPlacingCoords]    = useState(null);
-  const [isDark,           setIsDark]           = useState(true);
-  const [mapReady,         setMapReady]         = useState(false);
-  const [toast,            setToast]            = useState(null);
-  const [userLatLng,       setUserLatLng]       = useState(null);
-  const [locationStatus,   setLocationStatus]   = useState("idle");
-  const [forgetTargetId,   setForgetTargetId]   = useState(null);
-  const [foundPopup,       setFoundPopup]       = useState(null);
-  const [showTipJar,       setShowTipJar]       = useState(false);
-  const [showHelp,         setShowHelp]         = useState(false);
+  const [pins, setPins] = useState(loadPinsWithMigration);
+  const [selectedPinId, setSelectedPinId] = useState(null);
+  const [mode, setMode] = useState("idle");
+  const [placingCoords, setPlacingCoords] = useState(null);
+  const [editingPin, setEditingPin] = useState(null);
+  const [sharingPin, setSharingPin] = useState(null);
+  const [anniversaryHint, setAnniversaryHint] = useState(null);
+  // FIX: theme persists from storage
+  const [isDark, setIsDark] = useState(() => getStoredTheme() === "dark");
+  const [mapReady, setMapReady] = useState(false);
+  const [toast, setToast] = useState("");
+  const [userLatLng, setUserLatLng] = useState(null);
+  const [locationStatus, setLocationStatus] = useState("idle");
+  const [forgetTargetId, setForgetTargetId] = useState(null);
+  const [foundPopup, setFoundPopup] = useState(null);
+  const [showTipJar, setShowTipJar] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [showExportImport, setShowExportImport] = useState(false);
-  const [showFirstNudge,   setShowFirstNudge]   = useState(false);
-  const [showWhatsNew,     setShowWhatsNew]     = useState(false);
+  const [showFirstNudge, setShowFirstNudge] = useState(false);
+  const [showWhatsNew, setShowWhatsNew] = useState(false);
   const [whatsNewIsFirstAck, setWhatsNewIsFirstAck] = useState(false);
   const [showUpdateBanner, setShowUpdateBanner] = useState(false);
-  const [notifPermission,  setNotifPermission]  = useState(
-    typeof Notification !== "undefined" ? Notification.permission : "default"
-  );
-
-  const [onboardPhase, setOnboardPhase] = useState(() => {
-    try { return localStorage.getItem(ONBOARDED_KEY) ? null : "welcome"; } catch { return "welcome"; }
-  });
+  const [notifPermission, setNotifPermission] = useState("default");
+  const [onboardPhase, setOnboardPhase] = useState("loading");
   const [tourStep, setTourStep] = useState(0);
+  const [showMemorySearch, setShowMemorySearch] = useState(false);
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [activeMoodFilters, setActiveMoodFilters] = useState(() => new Set());
+  const [dateFilterRange, setDateFilterRange] = useState(null);
+  const [lastBackupAt, setLastBackupAtState] = useState(getLastBackupAt());
+  const [showBackupNudge, setShowBackupNudge] = useState(false);
+  const [onThisDayPin, setOnThisDayPin] = useState(null);
 
-  /* ── Apply theme & viewport meta (incl. Apple PWA hints) ── */
+  const T = useTheme(isDark);
+  const mobile = useMemo(() => isMobileDevice(), []);
+
+  /* ─── Theme persistence + body class ───────────────────────────────── */
   useEffect(() => {
-    document.body.className = isDark ? "theme-dark" : "theme-light";
-
-    const setMeta = (name, content) => {
-      let el = document.querySelector(`meta[name="${name}"]`);
-      if (!el) { el = document.createElement("meta"); el.name = name; document.head.appendChild(el); }
-      el.content = content;
-    };
-
-    setMeta("viewport", "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover");
-    setMeta("theme-color", isDark ? "#0a0a0f" : "#f5f3ee");
-    setMeta("apple-mobile-web-app-capable", "yes");
-    setMeta("mobile-web-app-capable", "yes");
-    setMeta("apple-mobile-web-app-status-bar-style", isDark ? "black-translucent" : "default");
-    setMeta("apple-mobile-web-app-title", "Yearning");
+    setStoredTheme(isDark ? "dark" : "light");
+    document.body.classList.toggle("theme-light", !isDark);
+    let metaTheme = document.querySelector("meta[name=theme-color]");
+    if (!metaTheme) {
+      metaTheme = document.createElement("meta");
+      metaTheme.setAttribute("name", "theme-color");
+      document.head.appendChild(metaTheme);
+    }
+    metaTheme.setAttribute("content", isDark ? "#0a0a0f" : "#f5f3ee");
   }, [isDark]);
 
-  /* ── Persist pins on every change ── */
+  /* ─── Persist pins ─────────────────────────────────────────────────── */
   useEffect(() => { rawSavePins(pins); }, [pins]);
 
-  /* ── Snapshot a backup once per session (extra safety net) ── */
+  /* ─── Track first run ──────────────────────────────────────────────── */
+  useEffect(() => { getFirstRunAt(); }, []);
+
+  /* ─── Notification permission state ────────────────────────────────── */
   useEffect(() => {
-    pushBackup(pins);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if ("Notification" in window) setNotifPermission(Notification.permission);
   }, []);
 
-  const isDarkRef = useRef(isDark);
-  useEffect(() => { isDarkRef.current = isDark; }, [isDark]);
+  /* ─── Onboarding decision (welcome / what's new / nothing) ────────── */
+  useEffect(() => {
+    const onboarded = safeGetItem(ONBOARDED_KEY);
+    const lastVersion = getLastSeenVersion();
+    if (!onboarded) {
+      setOnboardPhase("welcome");
+    } else {
+      const cmp = compareVersions(lastVersion, APP_VERSION);
+      if (cmp < 0) {
+        setOnboardPhase("idle");
+        setShowWhatsNew(true);
+        setWhatsNewIsFirstAck(true);
+      } else {
+        setOnboardPhase("idle");
+      }
+    }
+  }, []);
+
+  /* ─── Service worker registration ─────────────────────────────────── */
+  useEffect(() => {
+    registerServiceWorker((reg) => {
+      window.__yearningWaitingWorker = reg.waiting || (reg.installing && reg.installing.state === "installed" ? reg.installing : null);
+      setShowUpdateBanner(true);
+    });
+  }, []);
+
+  /* ─── First-plant nudge after welcome ──────────────────────────────── */
+  useEffect(() => {
+    if (onboardPhase !== "idle") return;
+    if (pins.length > 0) return;
+    const t = setTimeout(() => setShowFirstNudge(true), 1500);
+    return () => clearTimeout(t);
+  }, [onboardPhase, pins.length]);
+
+  /* ─── Backup nudge check ───────────────────────────────────────────── */
+  useEffect(() => {
+    if (onboardPhase !== "idle") return;
+    if (pins.length === 0) return;
+    if (showWhatsNew || showFirstNudge) return;
+    const last = lastBackupAt;
+    if (last && daysBetween(last, Date.now()) < BACKUP_NUDGE_DAYS) return;
+    if (!last) {
+      // never backed up but has many pins → nudge after a delay
+      if (pins.length >= 5) {
+        const t = setTimeout(() => setShowBackupNudge(true), 4500);
+        return () => clearTimeout(t);
+      }
+    } else {
+      const t = setTimeout(() => setShowBackupNudge(true), 3000);
+      return () => clearTimeout(t);
+    }
+  }, [onboardPhase, pins.length, lastBackupAt, showWhatsNew, showFirstNudge]);
+
+  /* ─── On this day check ────────────────────────────────────────────── */
+  useEffect(() => {
+    if (onboardPhase !== "idle") return;
+    if (pins.length === 0) return;
+    const dismissedKey = getAnnivDismissed();
+    if (dismissedKey === todayKey()) return;
+    const now = new Date();
+    const matches = pins
+      .filter((p) => p.createdAt && isSameDayOfYear(p.createdAt, now.getTime()))
+      .map((p) => {
+        const yrs = now.getFullYear() - new Date(p.createdAt).getFullYear();
+        return { pin: p, years: yrs };
+      })
+      .filter((x) => [1, 2, 5].includes(x.years))
+      .sort((a, b) => b.years - a.years);
+    if (matches.length > 0) {
+      const t = setTimeout(() => setOnThisDayPin(matches[0].pin), 5500);
+      return () => clearTimeout(t);
+    }
+  }, [onboardPhase, pins]);
+
+  /* ─── Reverse geocode pins missing city/country ──────────────────── */
+  useEffect(() => {
+    const needs = pins.filter((p) => !p.city && !p.country);
+    if (needs.length === 0) return;
+    needs.forEach((p) => {
+      if (!geocodeQueueRef.current.find((q) => q.id === p.id)) {
+        geocodeQueueRef.current.push({ id: p.id, lat: p.lat, lng: p.lng });
+      }
+    });
+    const drainQueue = async () => {
+      if (geocodingRef.current) return;
+      geocodingRef.current = true;
+      while (geocodeQueueRef.current.length > 0) {
+        const item = geocodeQueueRef.current.shift();
+        const result = await reverseGeocode(item.lat, item.lng);
+        if (result.city || result.country) {
+          setPins((prev) => prev.map((p) => p.id === item.id ? { ...p, city: result.city, country: result.country } : p));
+        }
+        // respect Nominatim rate limit
+        await new Promise((r) => setTimeout(r, 1100));
+      }
+      geocodingRef.current = false;
+    };
+    drainQueue();
+  }, [pins]);
+
+  /* ─── Toast helper ─────────────────────────────────────────────────── */
+  const showToast = useCallback((msg, ms = 2400) => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(""), ms);
+  }, []);
+
+  /* ─── Location reminders ───────────────────────────────────────────── */
+  useEffect(() => {
+    if (notifPermission !== "granted") return;
+    if (!("geolocation" in navigator)) return;
+    let watchId;
+    try {
+      watchId = navigator.geolocation.watchPosition((position) => {
+        const { latitude, longitude } = position.coords;
+        const now = Date.now();
+        if (now - lastNotifTimeRef.current < NOTIF_COOLDOWN_MS) return;
+        if (lastNotifLocRef.current) {
+          const d = distanceKm(latitude, longitude, lastNotifLocRef.current.lat, lastNotifLocRef.current.lng);
+          if (d < NOTIF_COOLDOWN_KM) return;
+        }
+        const nearby = pins.filter((p) => distanceKm(latitude, longitude, p.lat, p.lng) <= NEARBY_RADIUS_KM);
+        if (nearby.length > 0) {
+          const closest = nearby.reduce((a, b) => distanceKm(latitude, longitude, a.lat, a.lng) < distanceKm(latitude, longitude, b.lat, b.lng) ? a : b);
+          if (showNotification("a memory is close ✦", `"${closest.title}" — ${closest.moodLabel || "a feeling"} you planted here`, () => {
+            setSelectedPinId(closest.id);
+            mapRef.current?.flyTo([closest.lat, closest.lng], 15, { duration: 1.5 });
+          })) {
+            lastNotifTimeRef.current = now;
+            lastNotifLocRef.current = { lat: latitude, lng: longitude };
+          }
+        } else {
+          const notifLocs = loadNotifLocs();
+          const hasNotifiedHere = notifLocs.some((l) => distanceKm(latitude, longitude, l.lat, l.lng) < 1);
+          if (!hasNotifiedHere && pins.length > 0) {
+            if (showNotification("you're somewhere new ✦", "plant a memory here before this moment passes", () => {
+              mapRef.current?.flyTo([latitude, longitude], 15, { duration: 1.5 });
+            })) {
+              notifLocs.push({ lat: latitude, lng: longitude, at: now });
+              saveNotifLocs(notifLocs);
+              lastNotifTimeRef.current = now;
+              lastNotifLocRef.current = { lat: latitude, lng: longitude };
+            }
+          }
+        }
+      }, () => {}, { enableHighAccuracy: false, maximumAge: 60000, timeout: 30000 });
+      locationWatchRef.current = watchId;
+    } catch {}
+    return () => { if (watchId !== undefined) try { navigator.geolocation.clearWatch(watchId); } catch {} };
+  }, [notifPermission, pins]);
+
+  /* ─── Date range bounds for slider ─────────────────────────────────── */
+  const dateBounds = useMemo(() => {
+    if (pins.length === 0) return null;
+    const stamps = pins.map((p) => p.createdAt || 0).filter((x) => x > 0);
+    if (stamps.length === 0) return null;
+    const min = Math.min(...stamps);
+    const max = Math.max(...stamps, Date.now());
+    if (max - min < 86400000 * 14) return null; // less than 2 weeks span — not useful
+    return [min, max];
+  }, [pins]);
+
+  // Initialize/clamp slider range whenever bounds change
+  useEffect(() => {
+    if (!dateBounds) { setDateFilterRange(null); return; }
+    setDateFilterRange((prev) => {
+      if (!prev) return [dateBounds[0], dateBounds[1]];
+      return [Math.max(prev[0], dateBounds[0]), Math.min(prev[1], dateBounds[1])];
+    });
+  }, [dateBounds]);
+
+  /* ─── Filtered pins (date + mood filters) ──────────────────────────── */
+  const filteredPins = useMemo(() => {
+    return pins.filter((p) => {
+      if (dateFilterRange && p.createdAt) {
+        if (p.createdAt < dateFilterRange[0] || p.createdAt > dateFilterRange[1]) return false;
+      }
+      if (activeMoodFilters.size > 0 && !activeMoodFilters.has(p.mood)) return false;
+      return true;
+    });
+  }, [pins, dateFilterRange, activeMoodFilters]);
+
+  /* ─── Stats ────────────────────────────────────────────────────────── */
+  const stats = useMemo(() => {
+    const cities = new Set();
+    const countries = new Set();
+    pins.forEach((p) => {
+      if (p.city) cities.add(p.city);
+      if (p.country) countries.add(p.country);
+    });
+    return { cities: cities.size, countries: countries.size };
+  }, [pins]);
+
+  const listeningDays = useMemo(() => {
+    const first = getFirstRunAt();
+    return Math.max(1, daysBetween(first, Date.now()));
+  }, []);
+
+  /* ─── Map initialization ───────────────────────────────────────────── */
+  useEffect(() => {
+    if (mapRef.current || !mapContainerRef.current) return;
+
+    const init = async () => {
+      if (!document.getElementById("leaflet-css")) {
+        const link = document.createElement("link");
+        link.id = "leaflet-css"; link.rel = "stylesheet";
+        link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+        document.head.appendChild(link);
+      }
+      const L = (await import("https://esm.sh/leaflet@1.9.4")).default;
+      leafletRef.current = L;
+
+      const map = L.map(mapContainerRef.current, {
+        center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM, zoomControl: false,
+        worldCopyJump: true, minZoom: 2, maxZoom: 18,
+        attributionControl: true, tap: false, touchZoom: true,
+        doubleClickZoom: false, scrollWheelZoom: true, dragging: true,
+      });
+      // Custom zoom buttons rendered separately — see ZoomControls component below
+      mapRef.current = map;
+      window.__yearningMap = map;
+
+      const tile = L.tileLayer(isDark ? TILE_DARK : TILE_LIGHT, { attribution: TILE_ATTR, subdomains: "abcd", maxZoom: 19 });
+      tile.addTo(map);
+      tileLayerRef.current = tile;
+
+      let pressTimer = null;
+      let pressStartLatLng = null;
+      const PRESS_THRESHOLD_MS = 600;
+      const PRESS_MOVE_THRESHOLD_PX = 14;
+
+      map.on("mousedown touchstart", (e) => {
+        if (pinchActiveRef.current) return;
+        if (e.originalEvent.touches && e.originalEvent.touches.length > 1) {
+          pinchActiveRef.current = true;
+          if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+          return;
+        }
+        pressStartLatLng = e.latlng;
+        const startPt = e.containerPoint || map.latLngToContainerPoint(e.latlng);
+        pressTimer = setTimeout(() => {
+          if (pinchActiveRef.current) return;
+          if (e.originalEvent.target?.closest(".yr-pin-card, .yr-overlay, .yr-modal, button, input, textarea")) return;
+          haptic("medium");
+          setPlacingCoords({ lat: pressStartLatLng.lat, lng: pressStartLatLng.lng });
+          setMode("writing");
+          setSelectedPinId(null);
+        }, PRESS_THRESHOLD_MS);
+
+        const onMove = (mv) => {
+          if (!pressTimer) return;
+          const pt = mv.containerPoint || map.latLngToContainerPoint(mv.latlng);
+          const dx = pt.x - startPt.x;
+          const dy = pt.y - startPt.y;
+          if (Math.sqrt(dx * dx + dy * dy) > PRESS_MOVE_THRESHOLD_PX) {
+            clearTimeout(pressTimer); pressTimer = null;
+            map.off("mousemove touchmove", onMove);
+          }
+        };
+        map.on("mousemove touchmove", onMove);
+      });
+      map.on("mouseup touchend touchcancel", () => {
+        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+        if (pinchActiveRef.current) {
+          setTimeout(() => { pinchActiveRef.current = false; }, 100);
+        }
+        lastTouchEndRef.current = Date.now();
+      });
+
+      map.on("click", (e) => {
+        if (pinchActiveRef.current) return;
+        if (Date.now() - lastTouchEndRef.current < 50) return;
+        if (e.originalEvent.target?.closest(".yr-pin-card, .yr-overlay, .yr-modal, button, input, textarea")) return;
+        if (modeRef.current === "placing") {
+          setPlacingCoords({ lat: e.latlng.lat, lng: e.latlng.lng });
+          setMode("writing");
+        } else {
+          setSelectedPinId(null);
+        }
+      });
+
+      setMapReady(true);
+    };
+    init();
+
+    return () => {
+      if (mapRef.current) { try { mapRef.current.remove(); } catch {} mapRef.current = null; }
+      window.__yearningMap = null;
+    };
+  }, []);
+
+  // Keep mode in a ref for click handler
   const modeRef = useRef(mode);
   useEffect(() => { modeRef.current = mode; }, [mode]);
 
-  const showToast = useCallback((msg) => {
-    setToast(msg);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 3200);
-  }, []);
-
-  /* ── Version detection: show "what's new" once per new version ── */
+  /* ─── Tile layer swap on theme change ──────────────────────────────── */
   useEffect(() => {
-    if (onboardPhase) return; // Don't run during onboarding
-    const lastSeen = getLastSeenVersion();
-    if (!lastSeen) return; // Brand-new user; finishOnboarding will set version
-    const cmp = compareVersions(lastSeen, APP_VERSION);
-    if (cmp < 0) {
-      const t = setTimeout(() => {
-        setWhatsNewIsFirstAck(true);
-        setShowWhatsNew(true);
-      }, 800);
-      return () => clearTimeout(t);
-    }
-  }, [onboardPhase]);
-
-  /* ── Service worker: detect new versions deployed by the host ── */
-  useEffect(() => {
-    registerServiceWorker(() => setShowUpdateBanner(true));
-  }, []);
-
-  /* ── Location-based notifications ── */
-  const checkAndNotify = useCallback((lat, lng) => {
-    if (Notification.permission !== "granted") return;
-    const now = Date.now();
-    if (now - lastNotifTimeRef.current < NOTIF_COOLDOWN_MS) return;
-    if (lastNotifLocRef.current) {
-      const d = distanceKm(lat, lng, lastNotifLocRef.current.lat, lastNotifLocRef.current.lng);
-      if (d < NOTIF_COOLDOWN_KM) return;
-    }
-    const notifiedLocs = loadNotifLocs();
-    const recentlyNotified = notifiedLocs.some(
-      (l) => distanceKm(lat, lng, l.lat, l.lng) < NOTIF_COOLDOWN_KM
-    );
-    if (recentlyNotified) return;
-
-    const nearbyPins = pins.filter((p) => distanceKm(lat, lng, p.lat, p.lng) <= NEARBY_RADIUS_KM);
-    let shown = false;
-    if (nearbyPins.length > 0) {
-      shown = showNotification(
-        "yearning — you've been here ✦",
-        nearbyPins.length === 1
-          ? `Near "${nearbyPins[0].title}". Tap to revisit.`
-          : `${nearbyPins.length} memories nearby — including "${nearbyPins[0].title}".`,
-      );
-    } else if (pins.length > 0) {
-      shown = showNotification(
-        "yearning — somewhere new ✦",
-        "You've drifted somewhere unfamiliar. Plant a thought before this moment passes.",
-      );
-    }
-    if (shown) {
-      lastNotifTimeRef.current = now;
-      lastNotifLocRef.current = { lat, lng };
-      saveNotifLocs([...notifiedLocs, { lat, lng, t: now }]);
-    }
-  }, [pins]);
-
-  useEffect(() => {
-    if (!navigator.geolocation) return;
-    if (notifPermission !== "granted") return;
-    if (locationWatchRef.current) {
-      navigator.geolocation.clearWatch(locationWatchRef.current);
-      locationWatchRef.current = null;
-    }
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => { checkAndNotify(pos.coords.latitude, pos.coords.longitude); },
-      () => {},
-      { enableHighAccuracy: false, maximumAge: 5 * 60 * 1000, timeout: 30000 }
-    );
-    locationWatchRef.current = watchId;
-    return () => {
-      if (locationWatchRef.current) {
-        navigator.geolocation.clearWatch(locationWatchRef.current);
-        locationWatchRef.current = null;
-      }
-    };
-  }, [notifPermission, checkAndNotify]);
-
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState !== "visible") return;
-      if (Notification.permission !== "granted") return;
-      if (pins.length === 0) return;
-      if (!navigator.geolocation) return;
-      navigator.geolocation.getCurrentPosition(
-        (pos) => checkAndNotify(pos.coords.latitude, pos.coords.longitude),
-        () => {},
-        { timeout: 5000, maximumAge: 5 * 60 * 1000 }
-      );
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, [pins, checkAndNotify]);
-
-  /* ── Init Leaflet ── */
-  const initMap = useCallback(() => {
-    if (mapRef.current || !mapContainerRef.current || !window.L) return;
-    const L = window.L;
-    leafletRef.current = L;
-    const isMobile = isMobileDevice();
-    const map = L.map(mapContainerRef.current, {
-      center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM,
-      zoomControl: false, attributionControl: false,
-      tap: false, bounceAtZoomLimits: false, worldCopyJump: true,
-      zoomSnap: isMobile ? 0.5 : 1, zoomDelta: isMobile ? 0.5 : 1,
-      wheelDebounceTime: 40, wheelPxPerZoomLevel: 120,
-      inertia: true, inertiaDeceleration: 3000,
-    });
-    tileLayerRef.current = L.tileLayer(TILE_DARK, {
-      attribution: TILE_ATTR, subdomains: "abcd", maxZoom: 19, crossOrigin: true,
-    }).addTo(map);
-    L.control.zoom({ position: "topleft" }).addTo(map);
-    L.control.attribution({ position: "bottomright", prefix: false }).addTo(map);
-
-    setTimeout(() => {
-      const zoomEl = document.querySelector(".leaflet-control-zoom");
-      if (zoomEl && zoomEl.parentElement) {
-        const parent = zoomEl.parentElement;
-        parent.style.position = "absolute";
-        parent.style.top = "50%";
-        parent.style.transform = "translateY(-50%)";
-        parent.style.left = "0";
-      }
-    }, 50);
-
-    mapRef.current = map;
-    window.__yearningMap = map;
-    setMapReady(true);
-
-    try {
-      if (localStorage.getItem(ONBOARDED_KEY) && navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => map.setView([pos.coords.latitude, pos.coords.longitude], 5, { animate: false }),
-          () => {},
-          { timeout: 3000, maximumAge: 300000 }
-        );
-      }
-    } catch {}
-  }, []);
-
-  useEffect(() => {
-    if (window.L) { initMap(); return; }
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
-    document.head.appendChild(link);
-    const script = document.createElement("script");
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
-    script.onload = initMap;
-    document.head.appendChild(script);
-  }, [initMap]);
-
-  useEffect(() => {
-    if (!mapReady) return;
-    const handleResize = () => mapRef.current?.invalidateSize();
-    window.addEventListener("resize", handleResize);
-    window.addEventListener("orientationchange", handleResize);
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      window.removeEventListener("orientationchange", handleResize);
-    };
-  }, [mapReady]);
-
-  useEffect(() => {
+    if (!mapReady || !leafletRef.current || !mapRef.current) return;
     const L = leafletRef.current;
-    const map = mapRef.current;
-    if (!L || !map || !mapReady) return;
-    if (tileLayerRef.current) map.removeLayer(tileLayerRef.current);
-    tileLayerRef.current = L.tileLayer(isDark ? TILE_DARK : TILE_LIGHT, {
-      attribution: TILE_ATTR, subdomains: "abcd", maxZoom: 19, crossOrigin: true,
-    }).addTo(map);
-    tileLayerRef.current.bringToBack();
+    if (tileLayerRef.current) try { mapRef.current.removeLayer(tileLayerRef.current); } catch {}
+    const tile = L.tileLayer(isDark ? TILE_DARK : TILE_LIGHT, { attribution: TILE_ATTR, subdomains: "abcd", maxZoom: 19 });
+    tile.addTo(mapRef.current);
+    tileLayerRef.current = tile;
   }, [isDark, mapReady]);
 
-  const createPinIcon = useCallback((pin, isSelected = false) => {
-    const L = leafletRef.current;
-    if (!L) return null;
-    const color = pin.moodColor || getMoodByKey(pin.mood, isDarkRef.current).color;
-    const size = isSelected ? 34 : 26;
-    const html = `<div style="display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 2px 10px ${color}aa);pointer-events:none">
-      <div style="width:${size}px;height:${size}px;border-radius:50% 50% 50% 0;background:${color};transform:rotate(-45deg);border:2px solid rgba(255,255,255,${isSelected ? "0.7" : "0.45"});box-shadow:0 0 ${isSelected ? 22 : 12}px ${color}cc;transition:all 0.2s;pointer-events:auto"></div>
-      <div style="width:2px;height:8px;background:${color};opacity:0.85;margin-top:-1px;pointer-events:none"></div>
-    </div>`;
-    return L.divIcon({ html, className: "", iconSize: [size + 4, size + 16], iconAnchor: [(size + 4) / 2, size + 16] });
-  }, []);
-
+  /* ─── Render markers ───────────────────────────────────────────────── */
   useEffect(() => {
+    if (!mapReady || !leafletRef.current || !mapRef.current) return;
     const L = leafletRef.current;
     const map = mapRef.current;
-    if (!L || !map || !mapReady) return;
-    Object.values(markersRef.current).forEach((m) => map.removeLayer(m));
-    markersRef.current = {};
-    pins.forEach((pin) => {
-      const icon = createPinIcon(pin, pin.id === selectedPinId);
-      const marker = L.marker([pin.lat, pin.lng], { icon, riseOnHover: true }).addTo(map);
+
+    // Clear old markers
+    markersRef.current.forEach((m) => { try { map.removeLayer(m); } catch {} });
+    markersRef.current = [];
+    heatmapMarkersRef.current.forEach((m) => { try { map.removeLayer(m); } catch {} });
+    heatmapMarkersRef.current = [];
+
+    if (showHeatmap) {
+      // Soft density: stack circle markers with low opacity per pin
+      filteredPins.forEach((p) => {
+        const moodColor = p.moodColor || getMoodByKey(p.mood, isDark).color;
+        for (let i = 0; i < 3; i++) {
+          const radius = 28 + i * 14;
+          const opacity = 0.18 - i * 0.05;
+          const c = L.circleMarker([p.lat, p.lng], {
+            radius, fillColor: moodColor, fillOpacity: opacity,
+            stroke: false, interactive: false, pane: "overlayPane",
+          });
+          c.addTo(map);
+          heatmapMarkersRef.current.push(c);
+        }
+      });
+      return;
+    }
+
+    filteredPins.forEach((p) => {
+      const moodColor = p.moodColor || getMoodByKey(p.mood, isDark).color;
+      const isSelected = selectedPinId === p.id;
+      const w = isSelected ? 28 : 22;
+      const h = isSelected ? 38 : 30;
+      const stroke = isDark ? "rgba(11,10,17,0.95)" : "rgba(252,250,247,0.98)";
+      const html = `
+        <div style="position:relative;width:${w}px;height:${h}px;transform:translateY(-${h/2 - w/2}px);">
+          <svg width="${w}" height="${h}" viewBox="0 0 24 32" style="position:absolute;inset:0;filter:drop-shadow(0 0 ${isSelected ? 10 : 6}px ${moodColor}cc) drop-shadow(0 2px 3px rgba(0,0,0,0.4));transition:all 0.2s;" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 1 C5.5 1 1 5.5 1 11 C1 18 12 31 12 31 C12 31 23 18 23 11 C23 5.5 18.5 1 12 1 Z"
+              fill="${moodColor}" stroke="${stroke}" stroke-width="1.6" stroke-linejoin="round"/>
+            <circle cx="12" cy="11" r="3.6" fill="${stroke}" opacity="0.92"/>
+          </svg>
+          ${isSelected ? `<div style="position:absolute;left:50%;bottom:-3px;transform:translateX(-50%);width:${w*0.9}px;height:${w*0.9}px;border-radius:50%;border:1.5px solid ${moodColor}88;animation:pulseRing 1.4s ease-out infinite;"></div>` : ""}
+        </div>
+      `;
+      const icon = L.divIcon({ html, className: "yr-pin-icon", iconSize: [w, h], iconAnchor: [w/2, h - w/2] });
+      const marker = L.marker([p.lat, p.lng], { icon, riseOnHover: true });
       marker.on("click", (e) => {
         L.DomEvent.stopPropagation(e);
         haptic("light");
-        setSelectedPinId((prev) => prev === pin.id ? null : pin.id);
+        setSelectedPinId(p.id);
+        setMode("idle");
       });
-      markersRef.current[pin.id] = marker;
+      marker.addTo(map);
+      markersRef.current.push(marker);
     });
-  }, [pins, mapReady, selectedPinId, createPinIcon, isDark]);
+  }, [filteredPins, selectedPinId, mapReady, isDark, showHeatmap]);
 
+  /* ─── User marker ──────────────────────────────────────────────────── */
   useEffect(() => {
+    if (!mapReady || !leafletRef.current || !mapRef.current) return;
+    const L = leafletRef.current;
     const map = mapRef.current;
-    if (!map || !mapReady) return;
-    const handleClick = (e) => {
-      if (pinchActiveRef.current) return;
-      if (Date.now() - lastTouchEndRef.current < 350) return;
-      if (modeRef.current === "placing") {
-        openWriting({ lat: e.latlng.lat, lng: e.latlng.lng });
-      } else {
-        setSelectedPinId(null);
-      }
-    };
-    map.on("click", handleClick);
-    return () => map.off("click", handleClick);
-  }, [mapReady]);
+    if (userMarkerRef.current) { try { map.removeLayer(userMarkerRef.current); } catch {} userMarkerRef.current = null; }
+    if (!userLatLng) return;
+    const html = `
+      <div style="position:relative;width:18px;height:18px;">
+        <div style="position:absolute;inset:0;background:#22d3ee;border-radius:50%;
+          border:2px solid white; box-shadow:0 0 12px #22d3eecc;"></div>
+        <div style="position:absolute;inset:-8px;border-radius:50%;background:#22d3ee44;animation:gps-pulse 2s ease-in-out infinite;"></div>
+      </div>
+    `;
+    const icon = L.divIcon({ html, className: "yr-user-marker", iconSize: [18, 18], iconAnchor: [9, 9] });
+    const m = L.marker([userLatLng.lat, userLatLng.lng], { icon, interactive: false, zIndexOffset: 1000 });
+    m.addTo(map);
+    userMarkerRef.current = m;
+  }, [userLatLng, mapReady]);
 
-  useEffect(() => {
-    const container = mapContainerRef.current;
-    if (!container || !mapReady) return;
-    let lpStart = null;
-    const clearLP = () => {
-      if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
-      lpStart = null;
-    };
-    const onTouchStart = (e) => {
-      if (e.touches.length >= 2) { pinchActiveRef.current = true; clearLP(); return; }
-      pinchActiveRef.current = false;
-      if (modeRef.current !== "view" && modeRef.current !== "placing") return;
-      const touch = e.touches[0];
-      lpStart = { x: touch.clientX, y: touch.clientY, target: e.target };
-      longPressTimer.current = setTimeout(() => {
-        if (!lpStart || pinchActiveRef.current) return;
-        const map = mapRef.current; if (!map) return;
-        const rect = container.getBoundingClientRect();
-        const pt = map.containerPointToLatLng([lpStart.x - rect.left, lpStart.y - rect.top]);
-        haptic("medium"); playSound("chime");
-        openWriting({ lat: pt.lat, lng: pt.lng });
-        showToast("long-press pinned ✦");
-        lpStart = null;
-      }, 600);
-    };
-    const onTouchMove = (e) => {
-      if (e.touches.length >= 2) { pinchActiveRef.current = true; clearLP(); return; }
-      if (!lpStart || !e.touches[0]) return;
-      const t = e.touches[0];
-      if (Math.abs(t.clientX - lpStart.x) > 10 || Math.abs(t.clientY - lpStart.y) > 10) clearLP();
-    };
-    const onTouchEnd = (e) => {
-      lastTouchEndRef.current = Date.now();
-      clearLP();
-      if (e.touches.length === 0) setTimeout(() => { pinchActiveRef.current = false; }, 250);
-    };
-    const onTouchCancel = () => { clearLP(); setTimeout(() => { pinchActiveRef.current = false; }, 250); };
-
-    container.addEventListener("touchstart",  onTouchStart, { passive: true });
-    container.addEventListener("touchmove",   onTouchMove,  { passive: true });
-    container.addEventListener("touchend",    onTouchEnd,   { passive: true });
-    container.addEventListener("touchcancel", onTouchCancel,{ passive: true });
-    return () => {
-      container.removeEventListener("touchstart",  onTouchStart);
-      container.removeEventListener("touchmove",   onTouchMove);
-      container.removeEventListener("touchend",    onTouchEnd);
-      container.removeEventListener("touchcancel", onTouchCancel);
-      clearLP();
-    };
-  }, [mapReady, showToast]);
-
-  useEffect(() => {
-    const c = mapContainerRef.current;
-    if (c) c.style.cursor = mode === "placing" ? "crosshair" : "";
-  }, [mode]);
-
-  /* ── Handlers ── */
-  const openWriting = (coords) => {
-    haptic("medium");
-    setPlacingCoords(coords);
-    setMode("writing");
-  };
-
-  const cancelWrite = () => { setMode("view"); setPlacingCoords(null); };
-
-  const handleSave = (newPin) => {
-    setPins((p) => [...p, newPin]);
-    setMode("view");
-    setPlacingCoords(null);
-    setSelectedPinId(newPin.id);
-    mapRef.current?.flyTo([newPin.lat, newPin.lng], 16, { duration: 1.2 });
-    showToast("Memory planted ✦");
-    setShowFirstNudge(false);
-    if (Notification.permission === "default") {
-      setTimeout(async () => {
-        const granted = await requestNotificationPermission();
-        if (granted) {
-          setNotifPermission("granted");
-          showToast("location reminders enabled ·˚");
-        } else {
-          setNotifPermission(Notification.permission);
-        }
-      }, 1500);
+  /* ─── Locate me ────────────────────────────────────────────────────── */
+  const locate = useCallback(() => {
+    if (!("geolocation" in navigator)) {
+      showToast("location not supported on this device");
+      return;
     }
-  };
-
-  const requestLocation = useCallback(() => {
-    haptic("light");
-    if (!navigator.geolocation) { showToast("Geolocation not supported"); return; }
-    setLocationStatus("requesting");
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude: lat, longitude: lng } = pos.coords;
-        setUserLatLng({ lat, lng });
-        setLocationStatus("granted");
-        const L = leafletRef.current;
-        const map = mapRef.current;
-        if (!L || !map) return;
-        if (userMarkerRef.current) map.removeLayer(userMarkerRef.current);
-        const pulseHtml = `<div style="position:relative;width:20px;height:20px;pointer-events:none"><div style="position:absolute;inset:0;border-radius:50%;background:rgba(8,145,178,0.22);animation:gps-pulse 2s infinite"></div><div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:11px;height:11px;border-radius:50%;background:#22d3ee;border:2px solid white;box-shadow:0 0 10px #22d3ee"></div></div>`;
-        userMarkerRef.current = L.marker([lat, lng], {
-          icon: L.divIcon({ html: pulseHtml, className: "", iconSize: [20, 20], iconAnchor: [10, 10] }),
-          zIndexOffset: 1000, interactive: false,
-        }).addTo(map);
-        map.flyTo([lat, lng], 10, { duration: 2 });
-        setTimeout(() => setFoundPopup({ lat, lng }), 2100);
-        setTimeout(() => setFoundPopup(null), 5200);
-      },
-      () => { setLocationStatus("denied"); showToast("Location access denied"); },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+    haptic("medium");
+    setLocationStatus("locating");
+    navigator.geolocation.getCurrentPosition((pos) => {
+      const { latitude, longitude } = pos.coords;
+      setUserLatLng({ lat: latitude, lng: longitude });
+      setLocationStatus("found");
+      mapRef.current?.flyTo([latitude, longitude], 14, { duration: 1.6 });
+      setFoundPopup({ lat: latitude, lng: longitude });
+      setTimeout(() => setFoundPopup(null), 2400);
+    }, () => {
+      setLocationStatus("denied");
+      showToast("could not access your location");
+    }, { enableHighAccuracy: true, timeout: 10000 });
   }, [showToast]);
 
-  const plantAtCenter = () => {
-    const map = mapRef.current; if (!map) return;
-    const c = map.getCenter();
-    openWriting({ lat: c.lat, lng: c.lng });
+  /* ─── Plant here (GPS or center) ───────────────────────────────────── */
+  const plantHere = useCallback(() => {
+    haptic("medium");
+    if (userLatLng) {
+      tryAnniversary(userLatLng.lat, userLatLng.lng);
+      setPlacingCoords(userLatLng);
+      setMode("writing");
+    } else if (mapRef.current) {
+      const c = mapRef.current.getCenter();
+      tryAnniversary(c.lat, c.lng);
+      setPlacingCoords({ lat: c.lat, lng: c.lng });
+      setMode("writing");
+    }
+  }, [userLatLng]);
+
+  /* ─── Anniversary detection ────────────────────────────────────────── */
+  const tryAnniversary = useCallback((lat, lng) => {
+    const week = 7 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const nearby = pins
+      .filter((p) => p.createdAt && (now - p.createdAt) > week)
+      .map((p) => ({ p, d: distanceM(lat, lng, p.lat, p.lng) }))
+      .filter((x) => x.d <= ANNIVERSARY_RADIUS_M)
+      .sort((a, b) => a.d - b.d);
+    if (nearby.length > 0) {
+      const old = nearby[0].p;
+      const months = monthsBetween(old.createdAt, now);
+      const label = months < 1 ? "earlier this month" :
+                    months === 1 ? "1 month ago" :
+                    months < 12 ? `${months} months ago` :
+                    months < 24 ? "a year ago" :
+                    `${Math.floor(months / 12)} years ago`;
+      const moodLabel = (old.moodLabel || getMoodByKey(old.mood, isDark).label).toLowerCase();
+      setAnniversaryHint(`${label}, feeling ${moodLabel}`);
+    } else {
+      setAnniversaryHint(null);
+    }
+  }, [pins, isDark]);
+
+  /* ─── Save (new pin) ───────────────────────────────────────────────── */
+  const handleSavePin = (pin) => {
+    setPins((prev) => [...prev, pin]);
+    setMode("idle");
+    setPlacingCoords(null);
+    setAnniversaryHint(null);
+    showToast("memory planted ✦");
+    // kick off geocoding for this pin
+    reverseGeocode(pin.lat, pin.lng).then((result) => {
+      if (result.city || result.country) {
+        setPins((prev) => prev.map((p) => p.id === pin.id ? { ...p, city: result.city, country: result.country } : p));
+      }
+    });
   };
 
+  /* ─── Save (edit) ──────────────────────────────────────────────────── */
+  const handleSaveEdit = (updatedPin) => {
+    setPins((prev) => prev.map((p) => p.id === updatedPin.id ? updatedPin : p));
+    setEditingPin(null);
+    showToast("memory updated ✦");
+  };
+
+  /* ─── Forget ───────────────────────────────────────────────────────── */
+  const handleForget = (id) => {
+    setPins((prev) => prev.filter((p) => p.id !== id));
+    setSelectedPinId(null);
+    setForgetTargetId(null);
+    showToast("memory forgotten");
+  };
+
+  /* ─── Import ───────────────────────────────────────────────────────── */
+  const handleImport = (importedPins) => {
+    setPins((prev) => {
+      const existingIds = new Set(prev.map((p) => p.id));
+      const merged = [...prev];
+      importedPins.forEach((p) => {
+        if (!existingIds.has(p.id)) {
+          merged.push({
+            ...p,
+            id: p.id || `imported-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            createdAt: p.createdAt || Date.now(),
+            city: p.city || "",
+            country: p.country || "",
+          });
+        }
+      });
+      return merged;
+    });
+    showToast(`${importedPins.length} memories imported ✦`);
+  };
+
+  /* ─── Backup tracking ──────────────────────────────────────────────── */
+  const handleExported = () => {
+    const now = Date.now();
+    setLastBackupAt(now);
+    setLastBackupAtState(now);
+    setShowBackupNudge(false);
+  };
+
+  /* ─── Reset view ───────────────────────────────────────────────────── */
   const resetView = () => {
     haptic("light");
     mapRef.current?.flyTo(DEFAULT_CENTER, DEFAULT_ZOOM, { duration: 1.4 });
-    showToast("view restored");
+    setSelectedPinId(null);
+    setMode("idle");
   };
 
-  const jumpRandom = () => {
-    haptic("light");
-    if (!pins.length) return;
-    const pin = pins[Math.floor(Math.random() * pins.length)];
-    setSelectedPinId(pin.id);
-    mapRef.current?.flyTo([pin.lat, pin.lng], 14, { duration: 1.6 });
+  /* ─── Random memory ────────────────────────────────────────────────── */
+  const randomMemory = () => {
+    if (pins.length === 0) { showToast("plant a memory first ✦"); return; }
+    haptic("medium");
+    const p = pins[Math.floor(Math.random() * pins.length)];
+    mapRef.current?.flyTo([p.lat, p.lng], 13, { duration: 1.8 });
+    setSelectedPinId(p.id);
   };
 
-  const confirmForget = () => {
-    setPins((p) => p.filter((x) => x.id !== forgetTargetId));
-    setSelectedPinId(null); setForgetTargetId(null);
-    showToast("gently forgotten ·˚");
+  /* ─── Tour ─────────────────────────────────────────────────────────── */
+  const beginTour = () => {
+    setOnboardPhase("tour");
+    setTourStep(0);
+    setSelectedPinId(null);
+  };
+  const endTour = () => {
+    safeSetItem(ONBOARDED_KEY, "1");
+    setLastSeenVersion(APP_VERSION);
+    setOnboardPhase("idle");
+  };
+  const advanceTour = () => {
+    if (tourStep < TOUR_STEPS.length - 1) setTourStep((s) => s + 1);
+    else endTour();
   };
 
-  const handleImport = (importedPins) => {
-    setPins((current) => {
-      const existingIds = new Set(current.map((p) => p.id));
-      const newPins = importedPins.filter((p) => !existingIds.has(p.id));
-      return [...current, ...newPins];
-    });
-    showToast(`${importedPins.length} memories restored ✦`);
-  };
-
-  const handleEnableNotifications = useCallback(async () => {
+  /* ─── Notifications enable ─────────────────────────────────────────── */
+  const enableNotifications = async () => {
     haptic("light");
     const granted = await requestNotificationPermission();
-    setNotifPermission(typeof Notification !== "undefined" ? Notification.permission : "default");
-    if (granted) {
-      showToast("location reminders enabled ·˚");
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => checkAndNotify(pos.coords.latitude, pos.coords.longitude),
-          () => {}, { timeout: 5000 }
-        );
-      }
-    } else {
-      showToast("notifications not enabled");
-    }
-  }, [showToast, checkAndNotify]);
+    setNotifPermission(granted ? "granted" : (Notification?.permission || "denied"));
+    if (granted) showToast("location reminders enabled ✦");
+  };
 
+  /* ─── What's new dismiss ───────────────────────────────────────────── */
   const dismissWhatsNew = () => {
-    haptic("light");
-    setShowWhatsNew(false);
     setLastSeenVersion(APP_VERSION);
+    setShowWhatsNew(false);
+    setWhatsNewIsFirstAck(false);
   };
 
-  const applyUpdate = useCallback(() => {
+  /* ─── Update banner ────────────────────────────────────────────────── */
+  const applyUpdate = () => {
     haptic("medium");
-    rawSavePins(pins);
-    pushBackup(pins);
-    if (navigator.serviceWorker?.controller) {
-      navigator.serviceWorker.getRegistration().then((reg) => {
-        if (reg?.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
-      }).catch(() => {});
-    }
-    setTimeout(() => window.location.reload(), 200);
-  }, [pins]);
-
-  const finishOnboarding = () => {
-    try { localStorage.setItem(ONBOARDED_KEY, "1"); } catch {}
-    setOnboardPhase(null); setTourStep(0);
-    if (!getLastSeenVersion()) setLastSeenVersion(APP_VERSION);
-    setTimeout(() => setShowFirstNudge(true), 700);
+    const w = window.__yearningWaitingWorker;
+    if (w) try { w.postMessage({ type: "SKIP_WAITING" }); } catch {}
+    setTimeout(() => window.location.reload(), 600);
   };
-  const skipOnboarding = () => { finishOnboarding(); showToast("help is always in the i button ·˚"); };
 
-  /* ── Derived ── */
-  const T = useTheme(isDark);
-  const selectedPin = pins.find((p) => p.id === selectedPinId);
-  const forgetTargetPin = pins.find((p) => p.id === forgetTargetId);
+  const selectedPin = useMemo(() => pins.find((p) => p.id === selectedPinId), [pins, selectedPinId]);
+  const showPinCard = selectedPin && !editingPin && !sharingPin && !forgetTargetId;
 
-  const toolBtnStyle = { background: T.toolBg, borderColor: T.toolBorder, color: T.toolColor };
-  const cyan   = isDark ? "#22d3ee" : "#0e7490";
-  const purple = isDark ? "#a855f7" : "#6d28d9";
+  const toggleMoodFilter = (key) => {
+    haptic("light");
+    setActiveMoodFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
-  const lastSeen = getLastSeenVersion();
-  const changelogEntries = whatsNewIsFirstAck
-    ? CHANGELOG.filter((c) => compareVersions(c.version, lastSeen || "0.0.0") > 0)
-    : CHANGELOG;
+  const toolBg = T.toolBg, toolBorder = T.toolBorder, toolColor = T.toolColor;
+  const toolBtnStyle = {
+    background: toolBg,
+    border: `1px solid ${toolBorder}`,
+    color: toolColor,
+    boxShadow: isDark ? "0 2px 8px rgba(0,0,0,0.4)" : "0 2px 8px rgba(0,0,0,0.12)",
+  };
+  const placingActive = mode === "placing";
 
   return (
-    <div style={{
-      width: "100%", height: "100dvh",
-      background: isDark ? "#0a0a0f" : "#f5f3ee",
-      overflow: "hidden", position: "relative",
-    }}>
-      <style>{GLOBAL_CSS}</style>
+    <>
+      <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
+      <div ref={mapContainerRef} style={{ position: "fixed", inset: 0, zIndex: 0 }} />
 
-      <div ref={mapContainerRef} style={{ position: "absolute", inset: 0, zIndex: 0 }} />
-
-      {/* Header gradient */}
+      {/* Header — top left */}
       <div style={{
-        position: "fixed", top: 0, left: 0, right: 0, zIndex: 100,
-        padding: "max(18px, calc(env(safe-area-inset-top, 0px) + 14px)) 22px 44px",
-        background: T.headerGrad, pointerEvents: "none",
-        display: "flex", alignItems: "flex-start", justifyContent: "space-between",
+        position: "fixed", top: "max(14px, calc(env(safe-area-inset-top, 0px) + 14px))",
+        left: 14, zIndex: 100, pointerEvents: "none",
+        background: T.headerGrad,
+        padding: "8px 14px 18px 4px", borderRadius: 8,
       }}>
-        <div>
-          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 26, fontWeight: 500, color: T.textPrimary, letterSpacing: "0.06em", lineHeight: 1 }}>yearning</div>
-          <div style={{ fontFamily: "'Lora',serif", fontSize: 11, color: T.textMuted, letterSpacing: "0.12em", marginTop: 4, fontStyle: "italic", fontWeight: 500 }}>leave a part of yourself somewhere</div>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 500, color: T.textPrimary, letterSpacing: "0.04em", lineHeight: 1 }}>
+          Yearning
         </div>
-        {pins.length > 0 && (
-          <div style={{ fontFamily: "'Lora',serif", fontSize: 12, color: T.textSec, letterSpacing: "0.1em", marginTop: 4, fontWeight: 600 }}>
-            {pins.length} {pins.length === 1 ? "memory" : "memories"}
+        <div style={{ fontFamily: "'Lora',serif", fontStyle: "italic", fontSize: 11, color: T.textMuted, letterSpacing: "0.14em", marginTop: 4, fontWeight: 500 }}>
+          leave a part of yourself somewhere
+        </div>
+        <div style={{ fontFamily: "'Lora',serif", fontSize: 11, color: T.textSec, letterSpacing: "0.08em", marginTop: 8, fontWeight: 600 }}>
+          {pins.length} {pins.length === 1 ? "memory" : "memories"}
+        </div>
+        {(stats.cities > 0 || stats.countries > 0) && (
+          <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.06em", marginTop: 2, fontStyle: "italic" }}>
+            {stats.cities} {stats.cities === 1 ? "city" : "cities"} · {stats.countries} {stats.countries === 1 ? "country" : "countries"}
           </div>
         )}
       </div>
 
+      {/* Place search */}
       {mapReady && <SearchBox isDark={isDark} />}
 
-      {/* Update available banner */}
-      {showUpdateBanner && !showWhatsNew && (
-        <UpdateBanner
-          isDark={isDark}
-          onApply={applyUpdate}
-          onDismiss={() => { haptic("light"); setShowUpdateBanner(false); }}
-        />
+      {/* Zoom controls — mid-left, vertically centered */}
+      {mapReady && (
+        <div style={{
+          position: "fixed", left: 14, top: "50%", transform: "translateY(-50%)",
+          zIndex: 110, display: "flex", flexDirection: "column", gap: 6,
+        }}>
+          <button aria-label="Zoom in" title="Zoom in"
+            onClick={() => { haptic("light"); mapRef.current?.zoomIn(); }}
+            style={{
+              width: 44, height: 44, borderRadius: 8, cursor: "pointer",
+              background: isDark ? "rgba(11,10,17,0.92)" : "#ffffff",
+              border: `1px solid ${isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.22)"}`,
+              color: isDark ? "rgba(232,228,217,0.95)" : "#0a0908",
+              fontSize: 22, fontWeight: 500, lineHeight: 1,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+              boxShadow: isDark ? "0 2px 8px rgba(0,0,0,0.4)" : "0 2px 8px rgba(0,0,0,0.12)",
+              transition: "all 0.15s", WebkitTapHighlightColor: "transparent",
+            }}
+          >+</button>
+          <button aria-label="Zoom out" title="Zoom out"
+            onClick={() => { haptic("light"); mapRef.current?.zoomOut(); }}
+            style={{
+              width: 44, height: 44, borderRadius: 8, cursor: "pointer",
+              background: isDark ? "rgba(11,10,17,0.92)" : "#ffffff",
+              border: `1px solid ${isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.22)"}`,
+              color: isDark ? "rgba(232,228,217,0.95)" : "#0a0908",
+              fontSize: 24, fontWeight: 500, lineHeight: 1,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+              boxShadow: isDark ? "0 2px 8px rgba(0,0,0,0.4)" : "0 2px 8px rgba(0,0,0,0.12)",
+              transition: "all 0.15s", WebkitTapHighlightColor: "transparent",
+            }}
+          >−</button>
+        </div>
       )}
 
       {/* Right toolbar */}
-      {mode !== "placing" && (
-        <div id="toolbar" style={{
-          position: "fixed",
-          right: "max(14px, env(safe-area-inset-right, 14px))",
-          top: "50%", transform: "translateY(-50%)",
-          zIndex: 100, display: "flex", flexDirection: "column", gap: 8,
-        }}>
-          <button id="btn-locate" className="yr-tool-btn" title="Locate me" aria-label="Locate me"
-            onClick={() => { haptic("light"); requestLocation(); }}
-            style={{
-              background: locationStatus === "granted" ? (isDark ? "rgba(8,145,178,0.18)" : "rgba(14,116,144,0.12)") : T.toolBg,
-              borderColor: locationStatus === "granted" ? cyan : T.toolBorder,
-              color: locationStatus === "granted" ? cyan : T.toolColor,
-            }}>
-            {locationStatus === "requesting"
-              ? <div style={{ width: 14, height: 14, border: `2px solid ${cyan}40`, borderTopColor: cyan, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-              : "◎"}
-          </button>
-
-          <ToolBtn id="btn-plant" title={userLatLng ? "Plant at my location" : "Plant at map center"}
-            onClick={() => { userLatLng ? openWriting(userLatLng) : plantAtCenter(); }}
-            style={{ background: `${purple}1f`, borderColor: purple, color: purple }}>✦</ToolBtn>
-
-          <ToolBtn id="btn-place" title="Tap anywhere on map"
-            onClick={() => { setMode("placing"); setSelectedPinId(null); showToast("tap a spot · or long-press"); }}
-            style={{ ...toolBtnStyle, fontSize: 22, fontWeight: 400 }}>+</ToolBtn>
-
-          {pins.length > 0 && (
-            <ToolBtn id="btn-random" title="Jump to a random memory" onClick={jumpRandom}
-              style={{ ...toolBtnStyle, fontSize: 14 }}>↝</ToolBtn>
-          )}
-
-          <ToolBtn id="btn-reset" title="Reset view" onClick={resetView}
-            style={{ ...toolBtnStyle, fontSize: 16 }}>⌂</ToolBtn>
-
-          <div style={{ height: 1, background: T.panelBorder, borderRadius: 1, margin: "2px 8px" }} />
-
-          <ToolBtn id="btn-theme" title={isDark ? "Switch to light map" : "Switch to dark map"}
-            onClick={() => { setIsDark((v) => !v); }} style={{ ...toolBtnStyle, fontSize: 14 }}>◑</ToolBtn>
-
-          <ToolBtn id="btn-exportimport" title="Export / Import memories"
-            onClick={() => { setShowExportImport(true); }} style={{ ...toolBtnStyle, fontSize: 14 }}>⬇</ToolBtn>
-
-          <ToolBtn id="btn-tipjar" title="Support Yearning"
-            onClick={() => { setShowTipJar(true); }} style={toolBtnStyle}>☕</ToolBtn>
-
-          <ToolBtn id="btn-help" title="Help" onClick={() => { setShowHelp(true); }}
-            style={{ ...toolBtnStyle, fontFamily: "'Lora',serif", fontStyle: "italic", fontWeight: 600, fontSize: 16 }}>i</ToolBtn>
-        </div>
-      )}
-
-      {mode === "placing" && (
-        <button className="yr-tool-btn" onClick={() => { haptic("light"); setMode("view"); }}
-          aria-label="Cancel placing"
-          style={{ position: "fixed", right: "max(14px, env(safe-area-inset-right, 14px))", top: "50%", transform: "translateY(-50%)", zIndex: 100, background: "rgba(220,38,38,0.14)", borderColor: "rgba(220,38,38,0.5)", color: isDark ? "rgba(252,165,165,1)" : "#b91c1c", fontSize: 22 }}
-        >×</button>
-      )}
-
-      {/* Mood legend */}
       <div style={{
-        position: "fixed",
-        left: "max(14px, env(safe-area-inset-left, 14px))",
-        bottom: "max(56px, calc(env(safe-area-inset-bottom, 0px) + 56px))",
-        zIndex: 100, display: "flex", flexDirection: "column", gap: 5,
+        position: "fixed", top: "max(14px, calc(env(safe-area-inset-top, 0px) + 14px))",
+        right: 14, zIndex: 110,
+        display: "flex", flexDirection: "column", gap: 8,
       }}>
-        {T.moods.map((m) => (
-          <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 7 }}>
-            <div style={{ width: 8, height: 8, borderRadius: "50%", background: m.color, flexShrink: 0, boxShadow: `0 0 5px ${m.color}aa` }} />
-            <span style={{
-              fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.12em",
-              color: T.textPrimary, background: T.legendChipBg,
-              border: `1px solid ${T.legendChipBorder}`,
-              padding: "2px 8px", borderRadius: 4,
-              backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", fontWeight: 600,
-            }}>{m.label}</span>
-          </div>
-        ))}
+        <ToolBtn id="btn-locate" title="Locate me" onClick={locate} style={toolBtnStyle}>
+          {locationStatus === "locating" ? <span style={{ display: "inline-block", animation: "spin 1s linear infinite" }}>◴</span> : "◎"}
+        </ToolBtn>
+        <ToolBtn id="btn-plant" title="Plant here" onClick={plantHere}
+          style={{ background: isDark ? "rgba(168,85,247,0.18)" : "rgba(109,40,217,0.12)", border: `1px solid ${isDark ? "#a855f7" : "#6d28d9"}`, color: isDark ? "#c084fc" : "#6d28d9" }}>
+          ✦
+        </ToolBtn>
+        <ToolBtn id="btn-place" title={placingActive ? "Cancel placing" : "Tap anywhere to plant"}
+          onClick={() => setMode((m) => (m === "placing" ? "idle" : "placing"))}
+          style={placingActive
+            ? { background: isDark ? "rgba(168,85,247,0.32)" : "rgba(109,40,217,0.2)", border: `1px solid ${isDark ? "#a855f7" : "#6d28d9"}`, color: isDark ? "#c084fc" : "#6d28d9" }
+            : toolBtnStyle}>
+          +
+        </ToolBtn>
+        <ToolBtn id="btn-search" title="Search memories" onClick={() => setShowMemorySearch(true)} style={toolBtnStyle}>⌕</ToolBtn>
+        <ToolBtn id="btn-heatmap" title={showHeatmap ? "Hide heatmap" : "Show heatmap"}
+          onClick={() => { haptic("light"); setShowHeatmap((s) => !s); }}
+          style={showHeatmap
+            ? { background: isDark ? "rgba(168,85,247,0.28)" : "rgba(109,40,217,0.18)", border: `1px solid ${isDark ? "#a855f7" : "#6d28d9"}`, color: isDark ? "#c084fc" : "#6d28d9" }
+            : toolBtnStyle}>
+          ⌘
+        </ToolBtn>
+        <ToolBtn id="btn-reset" title="Reset view" onClick={resetView} style={toolBtnStyle}>⌂</ToolBtn>
+        <ToolBtn id="btn-random" title="Random memory" onClick={randomMemory} style={toolBtnStyle}>↝</ToolBtn>
+        <ToolBtn id="btn-theme" title="Toggle theme" onClick={() => setIsDark((d) => !d)} style={toolBtnStyle}>◑</ToolBtn>
+        <ToolBtn id="btn-exportimport" title="Export / Import" onClick={() => setShowExportImport(true)} style={toolBtnStyle}>⬇</ToolBtn>
+        <ToolBtn id="btn-tipjar" title="Support" onClick={() => setShowTipJar(true)} style={toolBtnStyle}>☕</ToolBtn>
+        <ToolBtn id="btn-help" title="Help" onClick={() => setShowHelp(true)} style={toolBtnStyle}>i</ToolBtn>
       </div>
 
-      {mode === "placing" && (
-        <div style={{
-          position: "fixed", bottom: "max(30px, calc(env(safe-area-inset-bottom, 0px) + 30px))",
-          left: "50%", transform: "translateX(-50%)",
-          background: T.panelBg, backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
-          border: `1px solid ${T.panelBorder}`, borderRadius: 6,
-          padding: "11px 22px", zIndex: 100,
-          fontFamily: "'Lora',serif", fontSize: 13, color: T.textPrimary,
-          letterSpacing: "0.12em", fontStyle: "italic", fontWeight: 500,
-          animation: "fadeUp 0.25s ease",
-          maxWidth: "calc(100vw - 28px)", textAlign: "center",
-          boxShadow: isDark ? "0 4px 20px rgba(0,0,0,0.5)" : "0 4px 20px rgba(0,0,0,0.15)",
-        }}>tap anywhere · or long-press to plant instantly</div>
+      {/* Mood legend / filter chips */}
+      <div style={{
+        position: "fixed", left: 14,
+        bottom: dateBounds ? "max(86px, calc(env(safe-area-inset-bottom, 0px) + 86px))" : "max(14px, calc(env(safe-area-inset-bottom, 0px) + 14px))",
+        zIndex: 100,
+        display: "flex", flexWrap: "wrap", gap: 6, maxWidth: "min(320px, calc(100vw - 28px))",
+      }}>
+        {T.moods.map((m) => {
+          const active = activeMoodFilters.has(m.key);
+          const dimmed = activeMoodFilters.size > 0 && !active;
+          return (
+            <button key={m.key} onClick={() => toggleMoodFilter(m.key)} style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              background: active ? `${m.color}28` : T.legendChipBg,
+              border: `1px solid ${active ? m.color : T.legendChipBorder}`,
+              borderRadius: 14, padding: "5px 10px",
+              cursor: "pointer", transition: "all 0.15s",
+              backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+              opacity: dimmed ? 0.45 : 1,
+              minHeight: 28, fontFamily: "'Lora',serif",
+              boxShadow: isDark ? "0 2px 6px rgba(0,0,0,0.35)" : "0 2px 6px rgba(0,0,0,0.1)",
+            }}>
+              <div style={{ width: 7, height: 7, borderRadius: "50%", background: m.color, boxShadow: `0 0 5px ${m.color}aa`, flexShrink: 0 }} />
+              <span style={{ fontSize: 11, color: active ? m.color : T.textSec, letterSpacing: "0.08em", fontWeight: active ? 700 : 500 }}>
+                {m.label}
+              </span>
+            </button>
+          );
+        })}
+        {(activeMoodFilters.size > 0 || (dateFilterRange && dateBounds && (dateFilterRange[0] !== dateBounds[0] || dateFilterRange[1] !== dateBounds[1]))) && (
+          <button onClick={() => { haptic("light"); setActiveMoodFilters(new Set()); if (dateBounds) setDateFilterRange([dateBounds[0], dateBounds[1]]); }}
+            style={{
+              background: "transparent", border: `1px dashed ${T.panelBorder}`,
+              borderRadius: 14, padding: "5px 10px", cursor: "pointer",
+              fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted,
+              letterSpacing: "0.1em", fontStyle: "italic", minHeight: 28, fontWeight: 500,
+            }}>
+            clear filters
+          </button>
+        )}
+      </div>
+
+      {/* Time travel slider */}
+      {dateBounds && dateFilterRange && (
+        <TimeSlider minTs={dateBounds[0]} maxTs={dateBounds[1]} range={dateFilterRange} setRange={setDateFilterRange} isDark={isDark} />
       )}
 
-      {pins.length === 0 && mode === "view" && mapReady && !selectedPinId && !showFirstNudge && onboardPhase === null && !showWhatsNew && (
-        <div style={{
-          position: "fixed", bottom: "max(30px, calc(env(safe-area-inset-bottom, 0px) + 30px))",
-          left: "50%", transform: "translateX(-50%)",
-          background: T.panelBg, backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
-          border: `1px solid ${T.panelBorder}`, borderRadius: 6,
-          padding: "12px 22px", zIndex: 100, textAlign: "center",
-          animation: "fadeUp 0.4s ease",
-          boxShadow: isDark ? "0 4px 20px rgba(0,0,0,0.4)" : "0 4px 20px rgba(0,0,0,0.14)",
-          maxWidth: "calc(100vw - 28px)",
-        }}>
-          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 15, color: T.textPrimary, letterSpacing: "0.04em", marginBottom: 4, fontWeight: 500 }}>
-            the map is waiting
-          </div>
-          <div style={{ fontFamily: "'Lora',serif", fontSize: 12, color: T.textSec, fontStyle: "italic", letterSpacing: "0.08em" }}>
-            tap <strong style={{ fontStyle: "normal", color: purple, fontWeight: 700 }}>✦</strong> or <strong style={{ fontStyle: "normal", color: T.textPrimary, fontWeight: 700 }}>+</strong> to plant your first memory
-          </div>
-        </div>
-      )}
+      {/* Found-you popup */}
+      {foundPopup && mapRef.current && <FoundPopup lat={foundPopup.lat} lng={foundPopup.lng} mapInstance={mapRef.current} />}
 
-      {showFirstNudge && pins.length === 0 && mode === "view" && onboardPhase === null && !showWhatsNew && (
-        <FirstPlantNudge
-          isDark={isDark} hasLocation={!!userLatLng}
-          onPlantHere={() => { setShowFirstNudge(false); openWriting(userLatLng); }}
-          onPlantWhere={() => { setShowFirstNudge(false); plantAtCenter(); }}
-          onDismiss={() => setShowFirstNudge(false)}
+      {/* Pin card */}
+      {showPinCard && (
+        <PinCard
+          pin={selectedPin}
+          mapInstance={mapRef.current}
+          isDark={isDark}
+          onClose={() => setSelectedPinId(null)}
+          onForget={(id) => setForgetTargetId(id)}
+          onEdit={(p) => setEditingPin(p)}
+          onShare={(p) => setSharingPin(p)}
         />
       )}
 
-      {selectedPin && mode === "view" && mapRef.current && (
-        <PinCard pin={selectedPin} mapInstance={mapRef.current} isDark={isDark}
-          onClose={() => setSelectedPinId(null)} onForget={setForgetTargetId} />
+      {/* Writing modal — new pin */}
+      {mode === "writing" && placingCoords && !editingPin && (
+        <WritingModal
+          coords={placingCoords}
+          onSave={handleSavePin}
+          onCancel={() => { setMode("idle"); setPlacingCoords(null); setAnniversaryHint(null); }}
+          isDark={isDark}
+          anniversaryHint={anniversaryHint}
+        />
       )}
 
-      {foundPopup && mapRef.current && (
-        <FoundPopup lat={foundPopup.lat} lng={foundPopup.lng} mapInstance={mapRef.current} />
+      {/* Edit modal */}
+      {editingPin && (
+        <WritingModal
+          existingPin={editingPin}
+          onSave={handleSaveEdit}
+          onCancel={() => setEditingPin(null)}
+          isDark={isDark}
+        />
       )}
 
-      {mode === "writing" && (
-        <WritingModal coords={placingCoords} onSave={handleSave} onCancel={cancelWrite} isDark={isDark} />
+      {/* Share card */}
+      {sharingPin && (
+        <ShareCardModal pin={sharingPin} isDark={isDark} onClose={() => setSharingPin(null)} />
       )}
 
-      {forgetTargetId && forgetTargetPin && (
-        <ForgetModal pin={forgetTargetPin} onConfirm={confirmForget} onCancel={() => setForgetTargetId(null)} isDark={isDark} />
+      {/* Memory search */}
+      {showMemorySearch && (
+        <MemorySearchModal
+          pins={pins}
+          isDark={isDark}
+          onClose={() => setShowMemorySearch(false)}
+          onSelect={(p) => {
+            setShowMemorySearch(false);
+            setSelectedPinId(p.id);
+            mapRef.current?.flyTo([p.lat, p.lng], 14, { duration: 1.6 });
+          }}
+        />
       )}
 
+      {/* Forget modal */}
+      {forgetTargetId && (
+        <ForgetModal
+          pin={pins.find((p) => p.id === forgetTargetId)}
+          onConfirm={() => handleForget(forgetTargetId)}
+          onCancel={() => setForgetTargetId(null)}
+          isDark={isDark}
+        />
+      )}
+
+      {/* Export/Import */}
       {showExportImport && (
-        <ExportImportModal pins={pins} onImport={handleImport} onClose={() => setShowExportImport(false)} isDark={isDark} />
+        <ExportImportModal
+          pins={pins}
+          onImport={handleImport}
+          onClose={() => setShowExportImport(false)}
+          onExported={handleExported}
+          isDark={isDark}
+          lastBackupAt={lastBackupAt}
+        />
       )}
 
+      {/* Tip Jar */}
       {showTipJar && <TipJarModal onClose={() => setShowTipJar(false)} isDark={isDark} />}
 
+      {/* Help */}
       {showHelp && (
         <HelpModal
           onClose={() => setShowHelp(false)}
           isDark={isDark}
-          onEnableNotifications={handleEnableNotifications}
+          onEnableNotifications={enableNotifications}
           notifPermission={notifPermission}
+          onShowChangelog={() => { setShowHelp(false); setShowWhatsNew(true); setWhatsNewIsFirstAck(false); }}
           pinCount={pins.length}
-          onShowChangelog={() => { setShowHelp(false); setWhatsNewIsFirstAck(false); setShowWhatsNew(true); }}
+          listeningDays={listeningDays}
         />
       )}
 
+      {/* What's new */}
       {showWhatsNew && (
         <WhatsNewModal
-          entries={changelogEntries.length > 0 ? changelogEntries : CHANGELOG}
+          entries={CHANGELOG}
           isFirstAcknowledgement={whatsNewIsFirstAck}
           onClose={dismissWhatsNew}
           isDark={isDark}
@@ -2187,28 +3205,79 @@ export default function Yearning() {
         />
       )}
 
-      {onboardPhase === "welcome" && (
-        <WelcomeModal
-          onStartTour={() => { setOnboardPhase("tour"); setTourStep(0); }}
-          onSkip={skipOnboarding}
+      {/* Update banner */}
+      {showUpdateBanner && !showWhatsNew && !showBackupNudge && !onThisDayPin && (
+        <UpdateBanner isDark={isDark} onApply={applyUpdate} onDismiss={() => setShowUpdateBanner(false)} />
+      )}
+
+      {/* Backup nudge */}
+      {showBackupNudge && !showWhatsNew && !onThisDayPin && (
+        <BackupNudge
+          isDark={isDark}
+          daysAgo={lastBackupAt ? daysBetween(lastBackupAt, Date.now()) : Math.min(99, daysBetween(getFirstRunAt(), Date.now()))}
+          onExport={() => { setShowBackupNudge(false); setShowExportImport(true); }}
+          onDismiss={() => { setShowBackupNudge(false); setLastBackupAt(Date.now() - (BACKUP_NUDGE_DAYS - 3) * 86400000); /* snooze ~3 days */ }}
         />
       )}
 
+      {/* On this day */}
+      {onThisDayPin && !showWhatsNew && (
+        <OnThisDayNudge
+          pin={onThisDayPin}
+          isDark={isDark}
+          onView={() => {
+            const p = onThisDayPin;
+            setOnThisDayPin(null);
+            setAnnivDismissed();
+            setSelectedPinId(p.id);
+            mapRef.current?.flyTo([p.lat, p.lng], 14, { duration: 1.8 });
+          }}
+          onDismiss={() => { setOnThisDayPin(null); setAnnivDismissed(); }}
+        />
+      )}
+
+      {/* Welcome / Tour */}
+      {onboardPhase === "welcome" && (
+        <WelcomeModal onStartTour={beginTour} onSkip={endTour} />
+      )}
       {onboardPhase === "tour" && (
         <TourOverlay
-          step={tourStep} total={TOUR_STEPS.length}
-          onNext={() => {
-            if (tourStep >= TOUR_STEPS.length - 1) { finishOnboarding(); showToast("you're all set ✦"); }
-            else setTourStep((s) => s + 1);
-          }}
+          step={tourStep}
+          total={TOUR_STEPS.length}
+          onNext={advanceTour}
           onPrev={() => setTourStep((s) => Math.max(0, s - 1))}
-          onSkip={skipOnboarding}
+          onSkip={endTour}
         />
+      )}
+
+      {/* First plant nudge */}
+      {showFirstNudge && !showWhatsNew && pins.length === 0 && (
+        <FirstPlantNudge
+          isDark={isDark}
+          hasLocation={!!userLatLng}
+          onPlantHere={() => { setShowFirstNudge(false); plantHere(); }}
+          onPlantWhere={() => { setShowFirstNudge(false); setMode("placing"); showToast("tap anywhere on the map ✦", 3000); }}
+          onDismiss={() => setShowFirstNudge(false)}
+        />
+      )}
+
+      {/* Placing mode hint */}
+      {placingActive && (
+        <div style={{
+          position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+          pointerEvents: "none", zIndex: 90, textAlign: "center",
+          fontFamily: "'Playfair Display',serif", fontStyle: "italic",
+          fontSize: 17, color: isDark ? "rgba(255,255,255,0.5)" : "rgba(10,9,8,0.5)",
+          letterSpacing: "0.08em", animation: "fadeIn 0.3s ease",
+          textShadow: isDark ? "0 2px 12px rgba(0,0,0,0.8)" : "0 2px 12px rgba(255,255,255,0.7)",
+        }}>
+          tap anywhere to plant a thought
+        </div>
       )}
 
       <Toast msg={toast} isDark={isDark} />
-          <SpeedInsights />
-        <Analytics />
-    </div>
+      <SpeedInsights />
+      <Analytics />
+    </>
   );
 }
