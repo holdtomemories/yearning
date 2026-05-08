@@ -67,7 +67,7 @@ const LAST_BACKUP_KEY = "yearning_last_backup_at";
 const ANNIV_DISMISS_KEY = "yearning_anniv_dismissed_today";
 const GEOCACHE_KEY    = "yearning_geocache_v1";
 const FIRST_RUN_KEY   = "yearning_first_run_at";
-const KOFI_URL        = "https://ko-fi.com/donatetoyearning";
+const KOFI_URL        = "https://ko-fi.com/supportyearningmap";
 const DEFAULT_CENTER  = [20, 0];
 const DEFAULT_ZOOM    = 2;
 const TILE_ATTR       = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>';
