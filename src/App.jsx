@@ -1411,7 +1411,7 @@ function DualRangeSlider({ min, max, valueMin, valueMax, onChange, accent, isDar
 }
 
 function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBounds, dateFilterRange, setDateFilterRange }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const T = useTheme(isDark);
   const moods = getMoods(isDark);
   const hasActive = activeMoodFilters.size > 0;
