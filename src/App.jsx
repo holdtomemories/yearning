@@ -1119,8 +1119,8 @@ function ExpandableSearch({ isDark }) {
   const updateDropdownPos = useCallback(() => {
     if (!btnRef.current) return;
     const r = btnRef.current.getBoundingClientRect();
-    const w = Math.min(280, window.innerWidth - r.left - 14);
-    setDropdownPos({ top: r.bottom + 2, left: r.left, width: w });
+    const w = Math.min(280, window.innerWidth - r.right - 8);
+    setDropdownPos({ center: r.bottom, left: r.right + 6, width: w });
   }, []);
 
   useEffect(() => {
@@ -1218,7 +1218,7 @@ function ExpandableSearch({ isDark }) {
                 inputMode="search"
                 style={{
                   flex: 1, background: "transparent", border: "none", outline: "none",
-                  color: T.textPrimary, fontFamily: "'Lora',serif", fontSize: 14,
+                  color: T.textPrimary, fontFamily: "'Lora',serif", fontSize: 140,
                   letterSpacing: "0.04em", minWidth: 0,
                 }}
               />
