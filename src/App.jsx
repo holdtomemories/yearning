@@ -198,7 +198,7 @@ function distanceKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 const distanceM = (a, b, c, d) => distanceKm(a, b, c, d) * 1000;
-const isMobileDevice = () => typeof window !== "undefined" && (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768);
+const isMobileDevice = () => typeof window !== "undefined" && (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 1024);
 
 /* ─── Notifications ─────────────────────────────────────────────────────── */
 async function requestNotificationPermission() {
@@ -300,6 +300,27 @@ const GLOBAL_CSS = `
   @media(max-width:768px){.yr-tool-btn{width:46px;height:46px;font-size:17px;border-radius:10px}.yr-mood-chip{padding:9px 16px;font-size:13.5px;min-height:40px}}
   @media(max-width:380px){.yr-tool-btn{width:44px;height:44px}}
   input,textarea{font-size:16px !important}
+
+  /* ── FIX: Search dropdown — always fixed to viewport so it never scrolls with layout ── */
+  .yr-place-search-dropdown{
+    position:fixed;
+    background:rgba(11,10,17,0.97);
+    border:1px solid rgba(255,255,255,0.16);
+    border-top:none;
+    border-radius:0 0 8px 8px;
+    overflow:hidden;
+    max-height:220px;
+    overflow-y:auto;
+    backdrop-filter:blur(12px);
+    -webkit-backdrop-filter:blur(12px);
+    animation:fadeUp 0.15s ease;
+    z-index:500;
+    box-shadow:0 8px 24px rgba(0,0,0,0.5);
+  }
+  body.theme-light .yr-place-search-dropdown{
+    background:rgba(252,250,247,0.98);
+    border-color:rgba(0,0,0,0.16);
+  }
 `;
 
 /* ─── Theme tokens ──────────────────────────────────────────────────────── */
@@ -323,11 +344,6 @@ function useTheme(isDark) {
 }
 
 /* ─── Reusable primitives ───────────────────────────────────────────────── */
-// FIX: Removed document.body.style.overflow manipulation from Overlay.
-// That was causing the right-side toolbar to disappear when a modal was open
-// because the body overflow was being set to "hidden" and not reliably restored.
-// The map container uses position:fixed and the app is already overflow:hidden,
-// so no body overflow manipulation is needed.
 function Overlay({ zIndex = 200, onClose, children }) {
   return <div className="yr-overlay" style={{ zIndex }} onClick={e => e.target === e.currentTarget && onClose?.()}>{children}</div>;
 }
@@ -455,15 +471,12 @@ function SealGlyph({ pin, color, size = 88, animate = false }) {
 }
 
 /* ─── Writing / Edit modal ──────────────────────────────────────────────── */
-// FIX: Added geocoding for the coords shown in the plant modal,
-// and display city/country below lat/lng once resolved.
 function WritingModal({ coords, existingPin, onSave, onCancel, isDark, anniversaryHint }) {
   const T = useTheme(isDark);
   const isEdit = !!existingPin;
   const [draft, setDraft] = useState(() => existingPin
     ? { title: existingPin.title, body: existingPin.body, mood: existingPin.mood, customMood: existingPin.customMood || "" }
     : { title: "", body: "", mood: "wonder", customMood: "" });
-  // FIX: Live geocode the planting coords for display in the modal
   const [locationLabel, setLocationLabel] = useState("");
   const mood = T.moods.find(m => m.key === draft.mood) ?? T.moods[0];
   const valid = draft.title.trim() && draft.body.trim() && (draft.mood !== "other" || draft.customMood.trim());
@@ -473,7 +486,6 @@ function WritingModal({ coords, existingPin, onSave, onCancel, isDark, anniversa
 
   useEffect(() => {
     if (!displayCoords) return;
-    // Check cache first for instant display
     const cache = loadGeocache();
     const key = gcKey(displayCoords.lat, displayCoords.lng);
     if (cache[key]) {
@@ -481,12 +493,10 @@ function WritingModal({ coords, existingPin, onSave, onCancel, isDark, anniversa
       if (r.city || r.country) setLocationLabel([r.city, r.country].filter(Boolean).join(", "));
       return;
     }
-    // For existing pins with data
     if (existingPin?.city || existingPin?.country) {
       setLocationLabel([existingPin.city, existingPin.country].filter(Boolean).join(", "));
       return;
     }
-    // Fetch async
     reverseGeocode(displayCoords.lat, displayCoords.lng).then(r => {
       if (r.city || r.country) setLocationLabel([r.city, r.country].filter(Boolean).join(", "));
     });
@@ -519,7 +529,6 @@ function WritingModal({ coords, existingPin, onSave, onCancel, isDark, anniversa
             <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.14em", fontWeight: 500 }}>
               {displayCoords.lat.toFixed(5)}, {displayCoords.lng.toFixed(5)}
             </div>
-            {/* FIX: City/Country line below coords */}
             {locationLabel ? (
               <div style={{ fontFamily: "'Lora',serif", fontSize: 12, color: T.textSec, letterSpacing: "0.08em", fontWeight: 600, marginTop: 3, fontStyle: "italic" }}>
                 {locationLabel}
@@ -884,7 +893,7 @@ function HelpModal({ onClose, isDark, onEnableNotifications, notifPermission, on
         </div>
       ))}
       <Sect title="editing memories"><div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: T.textSec, fontStyle: "italic", lineHeight: 1.75 }}>For 24 hours after planting, you can edit a memory's title, body, or mood. After that, the moment is set in stone. The location and time are never editable.</div></Sect>
-      <Sect title="time travel"><div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: T.textSec, fontStyle: "italic", lineHeight: 1.75 }}>Drag the slider at the bottom to filter memories by date. Tap mood chips to combine — the map listens.</div></Sect>
+      <Sect title="time travel"><div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: T.textSec, fontStyle: "italic", lineHeight: 1.75 }}>Open the mood filter tray and scroll down to find the date range slider. Drag the handles to filter memories by time.</div></Sect>
       <Sect title="moods">
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 4 }}>
           {T.moods.map(m => <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 9, height: 9, borderRadius: "50%", background: m.color, boxShadow: `0 0 6px ${m.color}88` }} /><span style={{ fontFamily: "'Lora',serif", fontSize: 12.5, color: T.textPrimary, fontWeight: 600 }}>{m.label}</span></div>)}
@@ -1081,92 +1090,176 @@ function TourOverlay({ step, total, onNext, onPrev, onSkip }) {
   );
 }
 
-/* ─── Expandable place search ───────────────────────────────────────────── */
+/* ─── FIX: Expandable place search ─────────────────────────────────────────
+   Problems fixed:
+   1. On mobile, when the input expands, it was causing layout shifts and the
+      virtual keyboard would push/reflow the entire fixed toolbar. Now the
+      dropdown is rendered via a portal-style fixed div whose position is
+      computed in JS, so it never interacts with the toolbar's flex layout.
+   2. The input is now contained within the 44px button height — it does NOT
+      expand the toolbar width, which was causing controls to overflow on small
+      screens. Instead the input overlays the map area using a separate fixed div.
+   3. The map-container touch-action is preserved; we explicitly stop propagation
+      on the input container so map interactions don't interfere.
+────────────────────────────────────────────────────────────────────────────── */
 function ExpandableSearch({ isDark }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 });
   const inputRef = useRef(null);
+  const btnRef = useRef(null);
+  const containerRef = useRef(null);
   const timerRef = useRef(null);
   const T = useTheme(isDark);
   const accent = isDark ? "rgba(192,132,252,0.65)" : "rgba(109,40,217,0.65)";
 
+  // Compute dropdown position anchored to the search button
+  const updateDropdownPos = useCallback(() => {
+    if (!btnRef.current) return;
+    const r = btnRef.current.getBoundingClientRect();
+    const w = Math.min(280, window.innerWidth - r.left - 14);
+    setDropdownPos({ top: r.bottom + 2, left: r.left, width: w });
+  }, []);
+
   useEffect(() => {
-    if (open) setTimeout(() => inputRef.current?.focus(), 80);
-    else { setQuery(""); setResults([]); }
-  }, [open]);
+    if (open) {
+      updateDropdownPos();
+      setTimeout(() => inputRef.current?.focus(), 80);
+    } else {
+      setQuery(""); setResults([]);
+    }
+  }, [open, updateDropdownPos]);
 
   useEffect(() => {
     if (!query.trim()) { setResults([]); setLoading(false); return; }
     clearTimeout(timerRef.current); setLoading(true);
     timerRef.current = setTimeout(async () => {
-      try { const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5`, { headers: { "Accept-Language": "en" } }); setResults(await res.json()); }
-      catch { setResults([]); } finally { setLoading(false); }
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5`, { headers: { "Accept-Language": "en" } });
+        setResults(await res.json());
+      } catch { setResults([]); } finally { setLoading(false); }
     }, 400);
     return () => clearTimeout(timerRef.current);
   }, [query]);
 
-  const flyTo = (r) => { haptic("light"); window.__yearningMap?.flyTo([parseFloat(r.lat), parseFloat(r.lon)], 12, { duration: 1.5 }); setQuery(r.display_name.split(",").slice(0, 2).join(", ")); setResults([]); setOpen(false); };
+  const flyTo = (r) => {
+    haptic("light");
+    window.__yearningMap?.flyTo([parseFloat(r.lat), parseFloat(r.lon)], 12, { duration: 1.5 });
+    setQuery(""); setResults([]); setOpen(false);
+  };
+
   const collapse = () => { haptic("light"); setOpen(false); };
 
   const pillBg = isDark ? "rgba(11,10,17,0.92)" : "#ffffff";
   const pillBorder = isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.18)";
 
   return (
-    <div id="search-expand-btn" style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-      <div style={{
-        display: "flex", alignItems: "center",
-        background: pillBg,
-        backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
-        border: `1px solid ${open ? accent : pillBorder}`,
-        borderRadius: open ? "10px 10px 0 0" : 10,
-        boxShadow: isDark ? "0 2px 12px rgba(0,0,0,0.4)" : "0 2px 12px rgba(0,0,0,0.12)",
-        overflow: "hidden",
-        transition: "border-color 0.2s, border-radius 0.2s",
-        width: open ? "min(280px, calc(100vw - 80px))" : 44,
-        height: 44,
-      }}>
-        <button onClick={() => { haptic("light"); setOpen(o => !o); }}
-          style={{ width: 44, height: 44, minWidth: 44, background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: open ? (isDark ? "#c084fc" : "#6d28d9") : T.toolColor, fontSize: 17, flexShrink: 0, WebkitTapHighlightColor: "transparent" }}
-          aria-label="Search places">
+    <>
+      {/* The trigger button — always 44×44, never grows */}
+      <div id="search-expand-btn" ref={btnRef} style={{ position: "relative" }}>
+        <button
+          onClick={() => { haptic("light"); setOpen(o => !o); }}
+          style={{
+            width: 44, height: 44, borderRadius: 10, background: open ? (isDark ? "rgba(192,132,252,0.15)" : "rgba(109,40,217,0.1)") : pillBg,
+            backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
+            border: `1px solid ${open ? accent : pillBorder}`,
+            color: open ? (isDark ? "#c084fc" : "#6d28d9") : T.toolColor,
+            cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 17, transition: "all 0.18s",
+            boxShadow: isDark ? "0 2px 12px rgba(0,0,0,0.4)" : "0 2px 12px rgba(0,0,0,0.12)",
+            WebkitTapHighlightColor: "transparent",
+          }}
+          aria-label="Search places"
+        >
           ⌖
         </button>
-        {open && (
-          <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)}
-            onKeyDown={e => { if (e.key === "Escape") collapse(); }}
-            placeholder="search a place…"
-            autoComplete="off" inputMode="search"
-            style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: T.textPrimary, fontFamily: "'Lora',serif", fontSize: 13.5, letterSpacing: "0.04em", paddingRight: 6, minWidth: 0 }}
-          />
-        )}
-        {open && query && (
-          <button onClick={() => setQuery("")} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 8px", minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }} aria-label="Clear">×</button>
-        )}
       </div>
 
-      {open && (results.length > 0 || loading) && (
-        <div style={{
-          background: isDark ? "rgba(11,10,17,0.97)" : "rgba(252,250,247,0.98)",
-          border: `1px solid ${isDark ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.16)"}`,
-          borderTop: "none",
-          borderRadius: "0 0 8px 8px",
-          overflow: "hidden", maxHeight: 220, overflowY: "auto",
-          backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
-          width: "min(280px, calc(100vw - 80px))",
-          animation: "fadeUp 0.15s ease",
-        }}>
-          {loading && results.length === 0 && <div style={{ padding: "12px 14px", fontFamily: "'Lora',serif", fontSize: 12.5, color: T.textMuted, fontStyle: "italic" }}>searching…</div>}
-          {results.map((r, i) => <div key={i} className="yr-search-result" onClick={() => flyTo(r)}>{r.display_name.split(",").slice(0, 3).join(", ")}</div>)}
-        </div>
-      )}
+      {/* FIX: Search input rendered as fixed overlay so it never affects layout flow */}
+      {open && (
+        <>
+          {/* Backdrop to close on outside tap — covers map but not UI elements */}
+          <div
+            onClick={collapse}
+            style={{ position: "fixed", inset: 0, zIndex: 490 }}
+          />
 
-      {open && <div onClick={collapse} style={{ position: "fixed", inset: 0, zIndex: -1 }} />}
-    </div>
+          {/* Floating search panel — fixed position computed from button rect */}
+          <div
+            ref={containerRef}
+            onClick={e => e.stopPropagation()}
+            style={{
+              position: "fixed",
+              top: dropdownPos.top,
+              left: dropdownPos.left,
+              width: Math.max(dropdownPos.width, 240),
+              zIndex: 491,
+              background: pillBg,
+              backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+              border: `1px solid ${accent}`,
+              borderRadius: 10,
+              boxShadow: isDark ? "0 8px 32px rgba(0,0,0,0.6)" : "0 8px 32px rgba(0,0,0,0.18)",
+              animation: "fadeUp 0.15s ease",
+              overflow: "hidden",
+            }}
+          >
+            {/* Input row */}
+            <div style={{ display: "flex", alignItems: "center", padding: "6px 10px", gap: 6 }}>
+              <span style={{ color: isDark ? "#c084fc" : "#6d28d9", fontSize: 15, flexShrink: 0 }}>⌖</span>
+              <input
+                ref={inputRef}
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === "Escape") collapse(); }}
+                placeholder="search a place…"
+                autoComplete="off"
+                inputMode="search"
+                style={{
+                  flex: 1, background: "transparent", border: "none", outline: "none",
+                  color: T.textPrimary, fontFamily: "'Lora',serif", fontSize: 14,
+                  letterSpacing: "0.04em", minWidth: 0,
+                }}
+              />
+              {query && (
+                <button
+                  onClick={() => setQuery("")}
+                  style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px", minWidth: 32, minHeight: 32, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+                  aria-label="Clear"
+                >×</button>
+              )}
+            </div>
+
+            {/* Results */}
+            {(results.length > 0 || loading) && (
+              <div style={{ borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`, maxHeight: 200, overflowY: "auto" }}>
+                {loading && results.length === 0 && (
+                  <div style={{ padding: "12px 14px", fontFamily: "'Lora',serif", fontSize: 12.5, color: T.textMuted, fontStyle: "italic" }}>searching…</div>
+                )}
+                {results.map((r, i) => (
+                  <div
+                    key={i}
+                    className="yr-search-result"
+                    onClick={() => flyTo(r)}
+                  >
+                    {r.display_name.split(",").slice(0, 3).join(", ")}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </>
   );
 }
 
-/* ─── Mood filter tray ──────────────────────────────────────────────────── */
+/* ─── FIX: Mood filter tray — now includes the time slider ─────────────────
+   The standalone TimeSlider component has been removed. The date range slider
+   is now rendered inside the filter drawer so it's always co-located with the
+   mood filters and never overlaps with the bottom toolbar on mobile.
+────────────────────────────────────────────────────────────────────────────── */
 function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBounds, dateFilterRange, setDateFilterRange }) {
   const [open, setOpen] = useState(false);
   const T = useTheme(isDark);
@@ -1174,9 +1267,6 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
   const hasActive = activeMoodFilters.size > 0;
   const accent = isDark ? "#a855f7" : "#6d28d9";
   const sliderAccent = isDark ? "#c084fc" : "#6d28d9";
-  // FIX: Use a stable bottom value that works in PWA standalone mode.
-  // env(safe-area-inset-bottom) is the correct approach; fallback to 0px not 14px
-  // so the button is flush with the bottom nav area in standalone mode.
   const bottomBase = "max(14px, calc(env(safe-area-inset-bottom, 0px) + 14px))";
 
   const dateActive = dateBounds && dateFilterRange && (dateFilterRange[0] !== dateBounds[0] || dateFilterRange[1] !== dateBounds[1]);
@@ -1185,7 +1275,8 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
   return (
     <>
       <div id="btn-filter" style={{ position: "fixed", left: 14, bottom: bottomBase, zIndex: 115 }}>
-        <button onClick={() => { haptic("light"); setOpen(o => !o); }}
+        <button
+          onClick={() => { haptic("light"); setOpen(o => !o); }}
           style={{
             width: 44, height: 44, borderRadius: 10, cursor: "pointer",
             background: open ? `${accent}22` : T.toolBg,
@@ -1197,10 +1288,16 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
             boxShadow: isDark ? "0 2px 8px rgba(0,0,0,0.4)" : "0 2px 8px rgba(0,0,0,0.12)",
             WebkitTapHighlightColor: "transparent", position: "relative",
           }}
-          aria-label="Filter moods">
+          aria-label="Filter moods"
+        >
           <span style={{ fontSize: 16 }}>⊟</span>
           {anyActive && (
-            <span style={{ position: "absolute", top: 7, right: 7, width: 7, height: 7, borderRadius: "50%", background: accent, boxShadow: `0 0 6px ${accent}cc`, border: `1.5px solid ${T.toolBg}` }} />
+            <span style={{
+              position: "absolute", top: 7, right: 7,
+              width: 7, height: 7, borderRadius: "50%",
+              background: accent, boxShadow: `0 0 6px ${accent}cc`,
+              border: `1.5px solid ${T.toolBg}`,
+            }} />
           )}
         </button>
       </div>
@@ -1217,26 +1314,34 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
             border: `1px solid ${accent}40`, borderLeft: `3px solid ${accent}`,
             borderRadius: "0 10px 10px 0",
             padding: "16px 16px 14px",
-            width: "min(240px, calc(100vw - 80px))",
+            width: "min(260px, calc(100vw - 80px))",
+            maxHeight: "calc(100dvh - 160px)",
+            overflowY: "auto",
             boxShadow: isDark ? "0 8px 32px rgba(0,0,0,0.55)" : "0 8px 32px rgba(0,0,0,0.18)",
             animation: "slideUpIn 0.22s ease",
           }}>
+            {/* Header */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <div style={{ fontFamily: "'Lora',serif", fontSize: 9.5, color: T.textMuted, letterSpacing: "0.28em", textTransform: "uppercase", fontWeight: 700 }}>filter moods</div>
               {anyActive && (
-                <button onClick={() => { onClear(); if (dateBounds) setDateFilterRange([dateBounds[0], dateBounds[1]]); }}
-                  style={{ background: "transparent", border: "none", fontFamily: "'Lora',serif", fontSize: 10.5, color: accent, cursor: "pointer", letterSpacing: "0.1em", fontWeight: 700, padding: "2px 0", minHeight: 44 }}>
+                <button
+                  onClick={() => { onClear(); if (dateBounds) setDateFilterRange([dateBounds[0], dateBounds[1]]); }}
+                  style={{ background: "transparent", border: "none", fontFamily: "'Lora',serif", fontSize: 10.5, color: accent, cursor: "pointer", letterSpacing: "0.1em", fontWeight: 700, padding: "2px 0", minHeight: 44 }}
+                >
                   clear all
                 </button>
               )}
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: dateBounds ? 14 : 0 }}>
+            {/* Mood chips */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               {moods.map(m => {
                 const active = activeMoodFilters.has(m.key);
                 const dimmed = hasActive && !active;
                 return (
-                  <button key={m.key} onClick={() => onToggle(m.key)}
+                  <button
+                    key={m.key}
+                    onClick={() => onToggle(m.key)}
                     style={{
                       display: "flex", alignItems: "center", gap: 10,
                       background: active ? `${m.color}18` : "transparent",
@@ -1244,7 +1349,8 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
                       borderRadius: 7, padding: "7px 10px", cursor: "pointer",
                       transition: "all 0.14s", opacity: dimmed ? 0.45 : 1,
                       minHeight: 44, WebkitTapHighlightColor: "transparent",
-                    }}>
+                    }}
+                  >
                     <div style={{ width: 8, height: 8, borderRadius: "50%", background: m.color, boxShadow: active ? `0 0 7px ${m.color}aa` : "none", flexShrink: 0 }} />
                     <span style={{ fontFamily: "'Lora',serif", fontSize: 12.5, color: active ? m.color : T.textSec, fontWeight: active ? 700 : 500, flex: 1, textAlign: "left", letterSpacing: "0.06em" }}>{m.label}</span>
                     {active && <span style={{ fontSize: 11, color: m.color, fontWeight: 700 }}>✓</span>}
@@ -1253,22 +1359,53 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
               })}
             </div>
 
+            {/* ── FIX: Time slider — now lives here inside the drawer ── */}
             {dateBounds && dateFilterRange && (
               <>
-                <div style={{ borderTop: `1px solid ${T.panelBorder}`, margin: "12px 0 10px" }} />
-                <div style={{ fontFamily: "'Lora',serif", fontSize: 9.5, color: T.textMuted, letterSpacing: "0.28em", textTransform: "uppercase", fontWeight: 700, marginBottom: 8 }}>date range</div>
-                <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 11, color: T.textSec, fontStyle: "italic", marginBottom: 8 }}>
+                <div style={{ borderTop: `1px solid ${T.panelBorder}`, margin: "14px 0 12px" }} />
+                <div style={{ fontFamily: "'Lora',serif", fontSize: 9.5, color: T.textMuted, letterSpacing: "0.28em", textTransform: "uppercase", fontWeight: 700, marginBottom: 8 }}>time travel</div>
+                <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 11.5, color: T.textSec, fontStyle: "italic", marginBottom: 10 }}>
                   {fmtMonthYear(dateFilterRange[0])} — {fmtMonthYear(dateFilterRange[1])}
                 </div>
-                <div style={{ position: "relative", height: 24, marginBottom: 4 }}>
-                  <div style={{ position: "absolute", left: 0, right: 0, top: 10, height: 3, background: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)", borderRadius: 2 }} />
-                  <div style={{ position: "absolute", top: 10, height: 3, borderRadius: 2, left: `${((dateFilterRange[0] - dateBounds[0]) / (dateBounds[1] - dateBounds[0])) * 100}%`, right: `${100 - ((dateFilterRange[1] - dateBounds[0]) / (dateBounds[1] - dateBounds[0])) * 100}%`, background: sliderAccent, opacity: 0.7 }} />
-                  <input className="yr-slider-track" type="range" min={dateBounds[0]} max={dateBounds[1]} step={86400000} value={dateFilterRange[0]}
+                {/* Min slider */}
+                <div style={{ position: "relative", height: 24, marginBottom: 6, touchAction: "none" }}>
+                  {/* Track background */}
+                  <div style={{
+                    position: "absolute", left: 0, right: 0, top: 10, height: 4,
+                    background: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)",
+                    borderRadius: 2, pointerEvents: "none",
+                  }} />
+                  {/* Filled range */}
+                  <div style={{
+                    position: "absolute", top: 10, height: 4, borderRadius: 2,
+                    left: `${((dateFilterRange[0] - dateBounds[0]) / (dateBounds[1] - dateBounds[0])) * 100}%`,
+                    right: `${100 - ((dateFilterRange[1] - dateBounds[0]) / (dateBounds[1] - dateBounds[0])) * 100}%`,
+                    background: sliderAccent, opacity: 0.7, pointerEvents: "none",
+                  }} />
+                  {/* Min thumb */}
+                  <input
+                    className="yr-slider-track"
+                    type="range"
+                    min={dateBounds[0]} max={dateBounds[1]}
+                    step={86400000}
+                    value={dateFilterRange[0]}
                     onChange={e => { const v = +e.target.value; if (v <= dateFilterRange[1]) setDateFilterRange([v, dateFilterRange[1]]); }}
-                    style={{ zIndex: 2 }} />
-                  <input className="yr-slider-track" type="range" min={dateBounds[0]} max={dateBounds[1]} step={86400000} value={dateFilterRange[1]}
+                    style={{ position: "absolute", left: 0, right: 0, top: 0, zIndex: 2 }}
+                  />
+                  {/* Max thumb */}
+                  <input
+                    className="yr-slider-track"
+                    type="range"
+                    min={dateBounds[0]} max={dateBounds[1]}
+                    step={86400000}
+                    value={dateFilterRange[1]}
                     onChange={e => { const v = +e.target.value; if (v >= dateFilterRange[0]) setDateFilterRange([dateFilterRange[0], v]); }}
-                    style={{ zIndex: 3 }} />
+                    style={{ position: "absolute", left: 0, right: 0, top: 0, zIndex: 3 }}
+                  />
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'Lora',serif", fontSize: 9.5, color: T.textFaint, letterSpacing: "0.06em" }}>
+                  <span>{new Date(dateBounds[0]).getFullYear()}</span>
+                  <span>{new Date(dateBounds[1]).getFullYear()}</span>
                 </div>
               </>
             )}
@@ -1280,7 +1417,6 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
 }
 
 /* ─── Overflow / hamburger menu ─────────────────────────────────────────── */
-// FIX: Added btn-search-mem id to the Search memories button so the tour step targets it correctly.
 function OverflowMenu({ isDark, onLocate, locationStatus, onReset, onRandom, onToggleHeatmap, showHeatmap, onToggleTheme, onExportImport, onTipJar, onHelp, onPlaceMode, placingActive, onSearchMemories }) {
   const [open, setOpen] = useState(false);
   const T = useTheme(isDark);
@@ -1301,7 +1437,9 @@ function OverflowMenu({ isDark, onLocate, locationStatus, onReset, onRandom, onT
 
   return (
     <>
-      <button id="btn-menu" onClick={() => { haptic("light"); setOpen(o => !o); }}
+      <button
+        id="btn-menu"
+        onClick={() => { haptic("light"); setOpen(o => !o); }}
         style={{
           width: 44, height: 44, borderRadius: 10, cursor: "pointer",
           background: open ? `${accent}22` : T.toolBg,
@@ -1313,7 +1451,8 @@ function OverflowMenu({ isDark, onLocate, locationStatus, onReset, onRandom, onT
           boxShadow: isDark ? "0 2px 8px rgba(0,0,0,0.4)" : "0 2px 8px rgba(0,0,0,0.12)",
           WebkitTapHighlightColor: "transparent",
         }}
-        aria-label="More options">
+        aria-label="More options"
+      >
         {open ? "×" : "≡"}
       </button>
 
@@ -1336,7 +1475,9 @@ function OverflowMenu({ isDark, onLocate, locationStatus, onReset, onRandom, onT
               if (item === null) return <div key={`div-${i}`} style={{ height: 1, background: T.panelBorder, margin: "4px 0" }} />;
               const { id, icon, label, action, active, italic } = item;
               return (
-                <button key={label} id={id} onClick={() => { haptic("light"); action(); close(); }}
+                <button
+                  key={label} id={id}
+                  onClick={() => { haptic("light"); action(); close(); }}
                   style={{
                     width: "100%", display: "flex", alignItems: "center", gap: 12,
                     background: active ? `${accent}12` : "transparent",
@@ -1345,7 +1486,8 @@ function OverflowMenu({ isDark, onLocate, locationStatus, onReset, onRandom, onT
                     minHeight: 44,
                   }}
                   onMouseEnter={e => e.currentTarget.style.background = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"}
-                  onMouseLeave={e => e.currentTarget.style.background = active ? `${accent}12` : "transparent"}>
+                  onMouseLeave={e => e.currentTarget.style.background = active ? `${accent}12` : "transparent"}
+                >
                   <span style={{ width: 20, textAlign: "center", fontSize: 15, color: active ? accent : T.textMuted, display: "inline-block", fontStyle: italic ? "italic" : "normal", fontFamily: italic ? "'Lora',serif" : "inherit", flexShrink: 0 }}>{icon}</span>
                   <span style={{ fontFamily: "'Lora',serif", fontSize: 13, color: active ? accent : T.textSec, letterSpacing: "0.06em", fontWeight: active ? 700 : 500 }}>{label}</span>
                 </button>
@@ -1422,94 +1564,6 @@ function PinCard({ pin, mapInstance, isDark, onClose, onForget, onEdit, onShare 
   );
 }
 
-/* ─── Time slider ───────────────────────────────────────────────────────── */
-// FIX: Complete rewrite for stable PWA/mobile behavior.
-// Problems in the original:
-//   1. `position:absolute` on both inputs with `top:0` was broken — both needed explicit
-//      `left:0;right:0` and a known height container. On iOS standalone the layout
-//      engine sometimes collapses absolute children if the parent has no explicit height.
-//   2. The track `top` values were inconsistent between the two inputs.
-//   3. `pointer-events:none` on the track with `pointer-events:auto` on the thumb is
-//      the correct approach, but was undermined by the z-index stack being too low (100)
-//      — other fixed elements at z-index 100-115 could intercept touches in PWA mode.
-//   4. The bottom calc used `env(safe-area-inset-bottom)` which resolves differently
-//      in standalone mode vs browser mode — use a fixed inset approach instead.
-//   5. Touch targets on range thumbs were 18px — below the 44px minimum. Bumped to 24px.
-function TimeSlider({ minTs, maxTs, range, setRange, isDark }) {
-  const T = useTheme(isDark);
-  const [minVal, maxVal] = range;
-  if (minTs >= maxTs) return null;
-  const pct = v => ((v - minTs) / (maxTs - minTs)) * 100;
-  const accent = isDark ? "#c084fc" : "#6d28d9";
-
-  return (
-    // FIX: Raised z-index to 116 (above filter button at 115, below modals at 200+).
-    // FIX: Use padding-bottom with safe-area env for PWA bottom inset.
-    // FIX: Added touch-action:none on the slider container to prevent scroll interference.
-    <div style={{
-      position: "fixed",
-      bottom: 0,
-      left: "50%",
-      transform: "translateX(-50%)",
-      width: "min(420px, calc(100vw - 120px))",
-      zIndex: 116,
-      background: T.panelBg,
-      backdropFilter: "blur(14px)",
-      WebkitBackdropFilter: "blur(14px)",
-      border: `1px solid ${T.panelBorder}`,
-      borderBottom: "none",
-      borderRadius: "8px 8px 0 0",
-      padding: `9px 14px calc(12px + env(safe-area-inset-bottom, 0px)) 14px`,
-      boxShadow: isDark ? "0 -4px 18px rgba(0,0,0,0.4)" : "0 -4px 18px rgba(0,0,0,0.12)",
-    }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 7, gap: 8 }}>
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 9.5, color: T.textMuted, letterSpacing: "0.22em", textTransform: "uppercase", fontWeight: 600 }}>time travel</div>
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 11.5, color: T.textPrimary, fontStyle: "italic", textAlign: "right" }}>{fmtMonthYear(minVal)} — {fmtMonthYear(maxVal)}</div>
-      </div>
-
-      {/* FIX: Slider container uses explicit height:24px and relative positioning.
-              Both inputs get position:absolute,left:0,right:0,top:0 which places
-              them consistently. The fill track sits at top:10 (center of 24px height). */}
-      <div style={{ position: "relative", height: 24, touchAction: "none" }}>
-        {/* Background track */}
-        <div style={{
-          position: "absolute", left: 0, right: 0, top: 10, height: 4,
-          background: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)",
-          borderRadius: 2, pointerEvents: "none",
-        }} />
-        {/* Filled range */}
-        <div style={{
-          position: "absolute", top: 10, height: 4, borderRadius: 2,
-          left: `${pct(minVal)}%`,
-          right: `${100 - pct(maxVal)}%`,
-          background: accent, opacity: 0.7,
-          pointerEvents: "none",
-        }} />
-        {/* Min thumb */}
-        <input
-          className="yr-slider-track"
-          type="range"
-          min={minTs} max={maxTs}
-          step={86400000}
-          value={minVal}
-          onChange={e => { const v = +e.target.value; if (v <= maxVal) setRange([v, maxVal]); }}
-          style={{ position: "absolute", left: 0, right: 0, top: 0, zIndex: 2 }}
-        />
-        {/* Max thumb */}
-        <input
-          className="yr-slider-track"
-          type="range"
-          min={minTs} max={maxTs}
-          step={86400000}
-          value={maxVal}
-          onChange={e => { const v = +e.target.value; if (v >= minVal) setRange([minVal, v]); }}
-          style={{ position: "absolute", left: 0, right: 0, top: 0, zIndex: 3 }}
-        />
-      </div>
-    </div>
-  );
-}
-
 /* ─── Main component ────────────────────────────────────────────────────── */
 export default function Yearning() {
   const mapContainerRef = useRef(null);
@@ -1525,6 +1579,14 @@ export default function Yearning() {
   const lastNotifLocRef = useRef(null);
   const geocodeQueueRef = useRef([]);
   const geocodingRef = useRef(false);
+
+  // ── FIX: Long press refs ──
+  // Track touch state precisely to distinguish a long-press from a scroll/pan.
+  const pressTimerRef = useRef(null);
+  const pressStartPosRef = useRef(null);  // { x, y, latlng }
+  const pressFiredRef = useRef(false);    // did the long-press action fire?
+  const LONG_PRESS_MS = 550;
+  const LONG_PRESS_MOVE_PX = 10; // cancel if finger moves more than this
 
   const [pins, setPins] = useState(loadPinsWithMigration);
   const [selectedPinId, setSelectedPinId] = useState(null);
@@ -1667,10 +1729,6 @@ export default function Yearning() {
     return true;
   }), [pins, dateFilterRange, activeMoodFilters]);
 
-  // FIX: Corrected stats calculation.
-  // Original bug: cityMap counted unique city strings, but any pin without a city still
-  // contributed a "" entry. Now we filter out empty strings before counting.
-  // We no longer display city pills with names — only numeric totals.
   const stats = useMemo(() => {
     const citySet = new Set(), countrySet = new Set();
     pins.forEach(p => {
@@ -1695,39 +1753,146 @@ export default function Yearning() {
       }
       const L = (await import("https://esm.sh/leaflet@1.9.4")).default;
       leafletRef.current = L;
-      const map = L.map(mapContainerRef.current, { center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM, zoomControl: false, worldCopyJump: true, minZoom: 2, maxZoom: 18, attributionControl: true, tap: false, touchZoom: true, doubleClickZoom: false, scrollWheelZoom: true, dragging: true });
+      const map = L.map(mapContainerRef.current, {
+        center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM,
+        zoomControl: false, worldCopyJump: true, minZoom: 2, maxZoom: 18,
+        attributionControl: true,
+        // FIX: tap:false disables Leaflet's own tap handler which interferes with
+        // our custom long-press on mobile. We handle all touch events manually.
+        tap: false,
+        touchZoom: true, doubleClickZoom: false, scrollWheelZoom: true, dragging: true,
+      });
       mapRef.current = map; window.__yearningMap = map;
       const tile = L.tileLayer(isDark ? TILE_DARK : TILE_LIGHT, { attribution: TILE_ATTR, subdomains: "abcd", maxZoom: 19 });
       tile.addTo(map); tileLayerRef.current = tile;
 
-      let pressTimer = null, pressStart = null;
-      const PRESS_MS = 600, PRESS_PX = 14;
-      map.on("mousedown touchstart", e => {
-        if (pinchActiveRef.current) return;
-        if (e.originalEvent.touches?.length > 1) { pinchActiveRef.current = true; clearTimeout(pressTimer); pressTimer = null; return; }
-        pressStart = e.latlng;
-        const startPt = e.containerPoint || map.latLngToContainerPoint(e.latlng);
-        pressTimer = setTimeout(() => {
-          if (pinchActiveRef.current || e.originalEvent.target?.closest(".yr-pin-card,.yr-overlay,.yr-modal,button,input,textarea")) return;
+      /* ── FIX: Long press — rewritten for mobile/tablet reliability ──────
+         Root causes of the original failure:
+         1. Using map.on("mousedown touchstart") mixes mouse and touch events.
+            On iOS/Android, "touchstart" fires but "mousedown" sometimes fires
+            too (synthetic), doubling the handler. We listen on the raw DOM node
+            to avoid Leaflet's event normalization.
+         2. The original detected movement via Leaflet's containerPoint which
+            requires a latlng — not always available on touchmove. We use raw
+            clientX/Y instead.
+         3. Leaflet's internal touch handlers (scroll, pinch) intercept touches
+            before our listeners on some Android Chrome versions. We use
+            { passive: true } for move/end so we don't block Leaflet but still
+            track position.
+         4. On iOS Safari, a long-press triggers the system context menu (image
+            save, selection handles). We prevent that with -webkit-touch-callout
+            on the container and preventDefault on contextmenu.
+      ────────────────────────────────────────────────────────────────────── */
+      const container = mapContainerRef.current;
+
+      // Prevent iOS long-press system menu
+      container.style.webkitTouchCallout = "none";
+      container.style.userSelect = "none";
+      container.style.webkitUserSelect = "none";
+      container.addEventListener("contextmenu", e => e.preventDefault());
+
+      const cancelPress = () => {
+        clearTimeout(pressTimerRef.current);
+        pressTimerRef.current = null;
+        pressStartPosRef.current = null;
+      };
+
+      const onTouchStart = (e) => {
+        // Only single finger, not pinch
+        if (e.touches.length !== 1) { cancelPress(); pinchActiveRef.current = true; return; }
+        pinchActiveRef.current = false;
+        pressFiredRef.current = false;
+
+        const touch = e.touches[0];
+        const startX = touch.clientX, startY = touch.clientY;
+
+        // Convert pixel position to latlng
+        const containerRect = container.getBoundingClientRect();
+        const px = L.point(startX - containerRect.left, startY - containerRect.top);
+        const latlng = map.containerPointToLatLng(px);
+
+        pressStartPosRef.current = { x: startX, y: startY, latlng };
+
+        pressTimerRef.current = setTimeout(() => {
+          if (!pressStartPosRef.current) return;
+          // Check if a UI element was touched — don't fire on buttons/modals
+          const el = document.elementFromPoint(startX, startY);
+          if (el && el.closest("button, input, textarea, .yr-pin-card, .yr-overlay, .yr-modal, [data-no-longpress]")) {
+            cancelPress();
+            return;
+          }
+          pressFiredRef.current = true;
+          cancelPress();
           haptic("medium");
-          setPlacingCoords({ lat: pressStart.lat, lng: pressStart.lng });
-          setMode("writing"); setSelectedPinId(null);
-        }, PRESS_MS);
-        const onMove = mv => {
-          if (!pressTimer) return;
-          const pt = mv.containerPoint || map.latLngToContainerPoint(mv.latlng);
-          const dx = pt.x - startPt.x, dy = pt.y - startPt.y;
-          if (Math.sqrt(dx * dx + dy * dy) > PRESS_PX) { clearTimeout(pressTimer); pressTimer = null; map.off("mousemove touchmove", onMove); }
-        };
-        map.on("mousemove touchmove", onMove);
+          const { latlng: ll } = pressStartPosRef.current || {};
+          // Re-read from ref in case it was cleared right before timeout fires
+          const coords = pressStartPosRef.current?.latlng ?? latlng;
+          setPlacingCoords({ lat: coords.lat, lng: coords.lng });
+          setMode("writing");
+          setSelectedPinId(null);
+        }, LONG_PRESS_MS);
+      };
+
+      const onTouchMove = (e) => {
+        if (!pressStartPosRef.current) return;
+        if (e.touches.length > 1) { cancelPress(); pinchActiveRef.current = true; return; }
+        const t = e.touches[0];
+        const dx = t.clientX - pressStartPosRef.current.x;
+        const dy = t.clientY - pressStartPosRef.current.y;
+        if (Math.sqrt(dx * dx + dy * dy) > LONG_PRESS_MOVE_PX) cancelPress();
+      };
+
+      const onTouchEnd = (e) => {
+        cancelPress();
+        lastTouchEndRef.current = Date.now();
+        setTimeout(() => { pinchActiveRef.current = false; }, 120);
+      };
+
+      container.addEventListener("touchstart", onTouchStart, { passive: true });
+      container.addEventListener("touchmove", onTouchMove, { passive: true });
+      container.addEventListener("touchend", onTouchEnd, { passive: true });
+      container.addEventListener("touchcancel", onTouchEnd, { passive: true });
+
+      // Desktop mouse long-press (click-hold)
+      let mouseHoldTimer = null;
+      let mouseStartPos = null;
+      container.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        mouseStartPos = { x: e.clientX, y: e.clientY };
+        const containerRect = container.getBoundingClientRect();
+        const px = L.point(e.clientX - containerRect.left, e.clientY - containerRect.top);
+        const latlng = map.containerPointToLatLng(px);
+
+        mouseHoldTimer = setTimeout(() => {
+          if (!mouseStartPos) return;
+          const el = document.elementFromPoint(e.clientX, e.clientY);
+          if (el && el.closest("button, input, textarea, .yr-pin-card, .yr-overlay, .yr-modal")) return;
+          haptic("medium");
+          setPlacingCoords({ lat: latlng.lat, lng: latlng.lng });
+          setMode("writing");
+          setSelectedPinId(null);
+          mouseStartPos = null;
+        }, LONG_PRESS_MS);
       });
-      map.on("mouseup touchend touchcancel", () => { clearTimeout(pressTimer); pressTimer = null; if (pinchActiveRef.current) setTimeout(() => { pinchActiveRef.current = false; }, 100); lastTouchEndRef.current = Date.now(); });
+      container.addEventListener("mousemove", (e) => {
+        if (!mouseStartPos) return;
+        const dx = e.clientX - mouseStartPos.x, dy = e.clientY - mouseStartPos.y;
+        if (Math.sqrt(dx * dx + dy * dy) > LONG_PRESS_MOVE_PX) { clearTimeout(mouseHoldTimer); mouseStartPos = null; }
+      });
+      container.addEventListener("mouseup", () => { clearTimeout(mouseHoldTimer); mouseStartPos = null; });
+
+      // Tap to place / deselect
       map.on("click", e => {
-        if (pinchActiveRef.current || Date.now() - lastTouchEndRef.current < 50) return;
+        if (pinchActiveRef.current || Date.now() - lastTouchEndRef.current < 80) return;
         if (e.originalEvent.target?.closest(".yr-pin-card,.yr-overlay,.yr-modal,button,input,textarea")) return;
-        if (modeRef.current === "placing") { setPlacingCoords({ lat: e.latlng.lat, lng: e.latlng.lng }); setMode("writing"); }
-        else setSelectedPinId(null);
+        if (modeRef.current === "placing") {
+          setPlacingCoords({ lat: e.latlng.lat, lng: e.latlng.lng });
+          setMode("writing");
+        } else {
+          setSelectedPinId(null);
+        }
       });
+
       setMapReady(true);
     };
     init();
@@ -1851,36 +2016,20 @@ export default function Yearning() {
         </button>
         <div style={{ fontFamily: "'Lora',serif", fontSize: 9.5, color: T.textMuted, letterSpacing: "0.22em", textTransform: "uppercase", marginTop: 5, fontWeight: 500, fontStyle: "italic", pointerEvents: "none" }}>map of your unspoken thoughts</div>
 
-        {/* Memory counter pill */}
         <div style={{ marginTop: 10, pointerEvents: "none" }}>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 6,
-            background: isDark ? "rgba(168,85,247,0.1)" : "rgba(109,40,217,0.07)",
-            border: `1px solid ${isDark ? "rgba(168,85,247,0.28)" : "rgba(109,40,217,0.22)"}`,
-            borderRadius: 20, padding: "4px 10px 4px 8px",
-          }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: isDark ? "rgba(168,85,247,0.1)" : "rgba(109,40,217,0.07)", border: `1px solid ${isDark ? "rgba(168,85,247,0.28)" : "rgba(109,40,217,0.22)"}`, borderRadius: 20, padding: "4px 10px 4px 8px" }}>
             <div style={{ width: 6, height: 6, borderRadius: "50%", background: isDark ? "#a855f7" : "#6d28d9", boxShadow: isDark ? "0 0 6px #a855f7aa" : "none", flexShrink: 0 }} />
             <span style={{ fontFamily: "'Lora',serif", fontSize: 11.5, fontWeight: 700, color: isDark ? "#c084fc" : "#6d28d9", letterSpacing: "0.06em" }}>{pins.length}</span>
             <span style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.08em", fontWeight: 500 }}>{pins.length === 1 ? "memory" : "memories"}</span>
           </div>
         </div>
 
-        {/* FIX: City / country breakdown — numbers only, no city name pills */}
         {(stats.cities > 0 || stats.countries > 0) && (
           <div style={{ marginTop: 6, pointerEvents: "none" }}>
             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              {stats.cities > 0 && (
-                <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, letterSpacing: "0.1em", fontStyle: "italic" }}>
-                  <span style={{ color: T.textSec, fontWeight: 600, fontStyle: "normal" }}>{stats.cities}</span> {stats.cities === 1 ? "city" : "cities"}
-                </div>
-              )}
-              {stats.cities > 0 && stats.countries > 0 && (
-                <div style={{ width: 2, height: 2, borderRadius: "50%", background: T.textMuted, opacity: 0.5 }} />
-              )}
-              {stats.countries > 0 && (
-                <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, letterSpacing: "0.1em", fontStyle: "italic" }}>
-                  <span style={{ color: T.textSec, fontWeight: 600, fontStyle: "normal" }}>{stats.countries}</span> {stats.countries === 1 ? "country" : "countries"}
-                </div>
-              )}
+              {stats.cities > 0 && <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, letterSpacing: "0.1em", fontStyle: "italic" }}><span style={{ color: T.textSec, fontWeight: 600, fontStyle: "normal" }}>{stats.cities}</span> {stats.cities === 1 ? "city" : "cities"}</div>}
+              {stats.cities > 0 && stats.countries > 0 && <div style={{ width: 2, height: 2, borderRadius: "50%", background: T.textMuted, opacity: 0.5 }} />}
+              {stats.countries > 0 && <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, letterSpacing: "0.1em", fontStyle: "italic" }}><span style={{ color: T.textSec, fontWeight: 600, fontStyle: "normal" }}>{stats.countries}</span> {stats.countries === 1 ? "country" : "countries"}</div>}
             </div>
           </div>
         )}
@@ -1897,7 +2046,7 @@ export default function Yearning() {
         </div>
       )}
 
-      {/* Right toolbar — FIX: always rendered, z-index 120, not affected by modals */}
+      {/* Right toolbar */}
       <div style={{ position: "fixed", top: "max(14px, calc(env(safe-area-inset-top, 0px) + 14px))", right: 14, zIndex: 120, display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
         <ToolBtn id="btn-locate" title="Locate me" onClick={locate} style={toolStyle}>
           {locationStatus === "locating" ? <span style={{ display: "inline-block", animation: "spin 1s linear infinite" }}>◴</span> : "◎"}
@@ -1928,7 +2077,7 @@ export default function Yearning() {
         </div>
       </div>
 
-      {/* Mood filter tray */}
+      {/* Mood filter tray (now contains the time slider too) */}
       <MoodFilterTray
         isDark={isDark}
         activeMoodFilters={activeMoodFilters}
@@ -1939,16 +2088,7 @@ export default function Yearning() {
         setDateFilterRange={setDateFilterRange}
       />
 
-      {/* Time slider — only shown when dateBounds exists */}
-      {dateBounds && dateFilterRange && (
-        <TimeSlider
-          minTs={dateBounds[0]}
-          maxTs={dateBounds[1]}
-          range={dateFilterRange}
-          setRange={setDateFilterRange}
-          isDark={isDark}
-        />
-      )}
+      {/* NOTE: Standalone TimeSlider removed — it now lives inside MoodFilterTray */}
 
       {foundPopup && mapRef.current && <FoundPopup lat={foundPopup.lat} lng={foundPopup.lng} mapInstance={mapRef.current} />}
 
