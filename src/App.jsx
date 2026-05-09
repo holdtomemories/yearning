@@ -1218,7 +1218,7 @@ function ExpandableSearch({ isDark }) {
                 inputMode="search"
                 style={{
                   flex: 1, background: "transparent", border: "none", outline: "none",
-                  color: T.textPrimary, fontFamily: "'Lora',serif", fontSize: 140,
+                  color: T.textPrimary, fontFamily: "'Lora',serif", fontSize: 16,
                   letterSpacing: "0.04em", minWidth: 0,
                 }}
               />
