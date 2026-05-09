@@ -21,7 +21,7 @@ const K = {
   FIRST_RUN: "yearning_first_run_at",
 };
 const KOFI_URL = "https://ko-fi.com/supportyearningmap";
-const DEFAULT_CENTER = [20, 0], DEFAULT_ZOOM = 2;
+const DEFAULT_CENTER = [20, 0], DEFAULT_ZOOM = 3;
 const TILE_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>';
 const TILE_DARK = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
 const TILE_LIGHT = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
@@ -1907,8 +1907,8 @@ export default function Yearning() {
       const L = (await import("https://esm.sh/leaflet@1.9.4")).default;
       leafletRef.current = L;
       const map = L.map(mapContainerRef.current, {
-        center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM,
-        zoomControl: false, worldCopyJump: true, minZoom: 2, maxZoom: 18,
+      center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM,
+      zoomControl: false, worldCopyJump: true, minZoom: 3, maxZoom: 18,
         attributionControl: true,
         // FIX: tap:false disables Leaflet's own tap handler which interferes with
         // our custom long-press on mobile. We handle all touch events manually.
@@ -1918,6 +1918,10 @@ export default function Yearning() {
       mapRef.current = map; window.__yearningMap = map;
       const tile = L.tileLayer(isDark ? TILE_DARK : TILE_LIGHT, { attribution: TILE_ATTR, subdomains: "abcd", maxZoom: 19 });
       tile.addTo(map); tileLayerRef.current = tile;
+      map.setMaxBounds([[-90, -Infinity], [90, Infinity]]);
+      map.on("drag", () => {
+      map.panInsideBounds([[-85, -Infinity], [85, Infinity]], { animate: false });
+      });
 
       /* ── FIX: Long press — rewritten for mobile/tablet reliability ──────
          Root causes of the original failure:
