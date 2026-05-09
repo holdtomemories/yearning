@@ -2143,7 +2143,17 @@ export default function Yearning() {
   };
   const handleExported = () => { const t = Date.now(); setLastBackupAt(t); setLastBackupAtState(t); setShowBackupNudge(false); };
   const resetView = () => { haptic("light"); mapRef.current?.flyTo(DEFAULT_CENTER, DEFAULT_ZOOM, { duration: 1.4 }); setSelectedPinId(null); setMode("idle"); };
-  const randomMemory = () => { if (pins.length === 0) { showToast("plant a memory first ✦"); return; } haptic("medium"); const p = pins[Math.floor(Math.random() * pins.length)]; mapRef.current?.flyTo([p.lat, p.lng], 13, { duration: 1.8 }); setSelectedPinId(p.id); };
+  const randomMemory = () => {
+    const pool = filteredPins.length > 0 ? filteredPins : [];
+    if (pool.length === 0) {
+      showToast(pins.length === 0 ? "plant a memory first ✦" : "no memories match the current filters ✦");
+      return;
+    }
+    haptic("medium");
+    const p = pool[Math.floor(Math.random() * pool.length)];
+    mapRef.current?.flyTo([p.lat, p.lng], 13, { duration: 1.8 });
+    setSelectedPinId(p.id);
+  };
   const beginTour = () => { setOnboardPhase("tour"); setTourStep(0); setSelectedPinId(null); };
   const endTour = () => { ls.set(K.ONBOARDED, "1"); setLastSeenVersion(APP_VERSION); setOnboardPhase("idle"); };
   const enableNotifications = async () => { haptic("light"); const granted = await requestNotificationPermission(); setNotifPermission(granted ? "granted" : (Notification?.permission || "denied")); if (granted) showToast("location reminders enabled ✦"); };
