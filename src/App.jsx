@@ -1255,21 +1255,171 @@ function ExpandableSearch({ isDark }) {
   );
 }
 
-/* ─── FIX: Mood filter tray — now includes the time slider ─────────────────
-   The standalone TimeSlider component has been removed. The date range slider
-   is now rendered inside the filter drawer so it's always co-located with the
-   mood filters and never overlaps with the bottom toolbar on mobile.
-────────────────────────────────────────────────────────────────────────────── */
+/* ─── FIX: Mood filter tray — dual range slider rewritten for all contexts ──
+   Root causes of time travel invisibility:
+   1. Overlapping <input type="range"> elements have z-index/pointer-event
+      conflicts on desktop and tablet — only one thumb was ever reachable.
+   2. The track fill div used percentage math that collapsed to 0 width when
+      both thumbs were at defaults (same position = 0% range).
+   3. yr-slider-track CSS class thumb styles don't inject reliably in PWA /
+      add-to-homescreen contexts where the stylesheet order can differ.
+   Fix: use a single custom drag-based slider built entirely in inline styles
+   with pointer events, so there's no CSS class dependency and no z-index fight.
+──────────────────────────────────────────────────────────────────────────── */
+
+function DualRangeSlider({ min, max, valueMin, valueMax, onChange, accent, isDark, T }) {
+  const trackRef = useRef(null);
+  const dragging = useRef(null);
+
+  const pct = (v) => ((v - min) / (max - min)) * 100;
+
+  const valueFromPct = (clientX) => {
+    const rect = trackRef.current?.getBoundingClientRect();
+    if (!rect) return min;
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return Math.round((min + ratio * (max - min)) / 86400000) * 86400000;
+  };
+
+  const onPointerDown = (which, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragging.current = which;
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const onPointerMove = (e) => {
+    if (!dragging.current) return;
+    const v = valueFromPct(e.clientX);
+    if (dragging.current === "min" && v < valueMax && v >= min) onChange([v, valueMax]);
+    if (dragging.current === "max" && v > valueMin && v <= max) onChange([valueMin, v]);
+  };
+
+  const onPointerUp = () => { dragging.current = null; };
+
+  const onTrackClick = (e) => {
+    const v = valueFromPct(e.clientX);
+    const dMin = Math.abs(v - valueMin);
+    const dMax = Math.abs(v - valueMax);
+    if (dMin < dMax) onChange([Math.min(v, valueMax - 86400000), valueMax]);
+    else onChange([valueMin, Math.max(v, valueMin + 86400000)]);
+  };
+
+  return (
+    <div style={{
+      padding: "10px 0 4px",
+      userSelect: "none",
+      WebkitUserSelect: "none",
+      width: "100%",
+      boxSizing: "border-box",
+    }}>
+      {/* Tall container — clips nothing, gives thumbs room to exist */}
+      <div style={{
+        position: "relative",
+        height: 32,           // tall enough: 22px thumb + 5px above + 5px below
+        margin: "0 11px",
+        boxSizing: "border-box",
+      }}>
+        {/* Track line — centered vertically inside the tall container */}
+        <div
+          ref={trackRef}
+          onClick={onTrackClick}
+          style={{
+            position: "absolute",
+            left: 0, right: 0,
+            top: "50%", transform: "translateY(-50%)",
+            height: 4, borderRadius: 2,
+            background: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)",
+            cursor: "pointer",
+          }}
+        />
+
+        {/* Filled range */}
+        <div style={{
+          position: "absolute",
+          top: "50%", transform: "translateY(-50%)",
+          height: 4, borderRadius: 2,
+          left: `${pct(valueMin)}%`,
+          width: `${Math.max(0, pct(valueMax) - pct(valueMin))}%`,
+          background: accent,
+          opacity: 0.8,
+          pointerEvents: "none",
+        }} />
+
+        {/* Min thumb */}
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: `${pct(valueMin)}%`,
+            transform: "translate(-50%, -50%)",
+            width: 22, height: 22,
+            borderRadius: "50%",
+            background: accent,
+            border: "2.5px solid rgba(255,255,255,0.9)",
+            boxShadow: `0 2px 8px ${accent}88`,
+            cursor: "grab",
+            touchAction: "none",
+            zIndex: 2,
+          }}
+          onPointerDown={(e) => onPointerDown("min", e)}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          title={fmtMonthYear(valueMin)}
+        />
+
+        {/* Max thumb */}
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: `${pct(valueMax)}%`,
+            transform: "translate(-50%, -50%)",
+            width: 22, height: 22,
+            borderRadius: "50%",
+            background: accent,
+            border: "2.5px solid rgba(255,255,255,0.9)",
+            boxShadow: `0 2px 8px ${accent}88`,
+            cursor: "grab",
+            touchAction: "none",
+            zIndex: 3,
+          }}
+          onPointerDown={(e) => onPointerDown("max", e)}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          title={fmtMonthYear(valueMax)}
+        />
+      </div>
+
+      {/* Year labels */}
+      <div style={{
+        display: "flex",
+        justifyContent: "space-between",
+        fontFamily: "'Lora',serif",
+        fontSize: 9.5,
+        color: T.textFaint,
+        letterSpacing: "0.06em",
+        marginTop: 6,
+        padding: "0 11px",
+      }}>
+        <span>{new Date(min).getFullYear()}</span>
+        <span>{new Date(max).getFullYear()}</span>
+      </div>
+    </div>
+  );
+}
+
 function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBounds, dateFilterRange, setDateFilterRange }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const T = useTheme(isDark);
   const moods = getMoods(isDark);
   const hasActive = activeMoodFilters.size > 0;
   const accent = isDark ? "#a855f7" : "#6d28d9";
-  const sliderAccent = isDark ? "#c084fc" : "#6d28d9";
   const bottomBase = "max(14px, calc(env(safe-area-inset-bottom, 0px) + 14px))";
 
-  const dateActive = dateBounds && dateFilterRange && (dateFilterRange[0] !== dateBounds[0] || dateFilterRange[1] !== dateBounds[1]);
+  const dateActive = dateBounds && dateFilterRange &&
+    (dateFilterRange[0] !== dateBounds[0] || dateFilterRange[1] !== dateBounds[1]);
   const anyActive = hasActive || dateActive;
 
   return (
@@ -1306,7 +1456,8 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
         <>
           <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 108 }} />
           <div style={{
-            position: "fixed", left: 14,
+            position: "fixed",
+            left: 14,
             bottom: `calc(${bottomBase} + 54px)`,
             zIndex: 109,
             background: T.panelBg,
@@ -1325,7 +1476,10 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
               <div style={{ fontFamily: "'Lora',serif", fontSize: 9.5, color: T.textMuted, letterSpacing: "0.28em", textTransform: "uppercase", fontWeight: 700 }}>filter moods</div>
               {anyActive && (
                 <button
-                  onClick={() => { onClear(); if (dateBounds) setDateFilterRange([dateBounds[0], dateBounds[1]]); }}
+                  onClick={() => {
+                    onClear();
+                    if (dateBounds) setDateFilterRange([dateBounds[0], dateBounds[1]]);
+                  }}
                   style={{ background: "transparent", border: "none", fontFamily: "'Lora',serif", fontSize: 10.5, color: accent, cursor: "pointer", letterSpacing: "0.1em", fontWeight: 700, padding: "2px 0", minHeight: 44 }}
                 >
                   clear all
@@ -1359,54 +1513,51 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
               })}
             </div>
 
-            {/* ── FIX: Time slider — now lives here inside the drawer ── */}
-            {dateBounds && dateFilterRange && (
-              <>
+            {/* Time travel — custom dual range slider, no CSS class dependency */}
+          {dateBounds && dateFilterRange && (              <>
                 <div style={{ borderTop: `1px solid ${T.panelBorder}`, margin: "14px 0 12px" }} />
-                <div style={{ fontFamily: "'Lora',serif", fontSize: 9.5, color: T.textMuted, letterSpacing: "0.28em", textTransform: "uppercase", fontWeight: 700, marginBottom: 8 }}>time travel</div>
-                <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 11.5, color: T.textSec, fontStyle: "italic", marginBottom: 10 }}>
+
+                <div style={{ fontFamily: "'Lora',serif", fontSize: 9.5, color: T.textMuted, letterSpacing: "0.28em", textTransform: "uppercase", fontWeight: 700, marginBottom: 4 }}>
+                  time travel
+                </div>
+
+                {/* Selected range label */}
+                <div style={{
+                  fontFamily: "'Playfair Display',serif",
+                  fontSize: 11.5,
+                  color: T.textSec,
+                  fontStyle: "italic",
+                  marginBottom: 2,
+                  minHeight: 18,
+                }}>
                   {fmtMonthYear(dateFilterRange[0])} — {fmtMonthYear(dateFilterRange[1])}
                 </div>
-                {/* Min slider */}
-                <div style={{ position: "relative", height: 24, marginBottom: 6, touchAction: "none" }}>
-                  {/* Track background */}
-                  <div style={{
-                    position: "absolute", left: 0, right: 0, top: 10, height: 4,
-                    background: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)",
-                    borderRadius: 2, pointerEvents: "none",
-                  }} />
-                  {/* Filled range */}
-                  <div style={{
-                    position: "absolute", top: 10, height: 4, borderRadius: 2,
-                    left: `${((dateFilterRange[0] - dateBounds[0]) / (dateBounds[1] - dateBounds[0])) * 100}%`,
-                    right: `${100 - ((dateFilterRange[1] - dateBounds[0]) / (dateBounds[1] - dateBounds[0])) * 100}%`,
-                    background: sliderAccent, opacity: 0.7, pointerEvents: "none",
-                  }} />
-                  {/* Min thumb */}
-                  <input
-                    className="yr-slider-track"
-                    type="range"
-                    min={dateBounds[0]} max={dateBounds[1]}
-                    step={86400000}
-                    value={dateFilterRange[0]}
-                    onChange={e => { const v = +e.target.value; if (v <= dateFilterRange[1]) setDateFilterRange([v, dateFilterRange[1]]); }}
-                    style={{ position: "absolute", left: 0, right: 0, top: 0, zIndex: 2 }}
-                  />
-                  {/* Max thumb */}
-                  <input
-                    className="yr-slider-track"
-                    type="range"
-                    min={dateBounds[0]} max={dateBounds[1]}
-                    step={86400000}
-                    value={dateFilterRange[1]}
-                    onChange={e => { const v = +e.target.value; if (v >= dateFilterRange[0]) setDateFilterRange([dateFilterRange[0], v]); }}
-                    style={{ position: "absolute", left: 0, right: 0, top: 0, zIndex: 3 }}
-                  />
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'Lora',serif", fontSize: 9.5, color: T.textFaint, letterSpacing: "0.06em" }}>
-                  <span>{new Date(dateBounds[0]).getFullYear()}</span>
-                  <span>{new Date(dateBounds[1]).getFullYear()}</span>
-                </div>
+
+                <DualRangeSlider
+                  min={dateBounds[0]}
+                  max={dateBounds[1]}
+                  valueMin={dateFilterRange[0]}
+                  valueMax={dateFilterRange[1]}
+                  onChange={setDateFilterRange}
+                  accent={accent}
+                  isDark={isDark}
+                  T={T}
+                />
+
+                {/* Reset date filter */}
+                {dateActive && (
+                  <button
+                    onClick={() => setDateFilterRange([dateBounds[0], dateBounds[1]])}
+                    style={{
+                      background: "transparent", border: "none",
+                      fontFamily: "'Lora',serif", fontSize: 10, color: T.textFaint,
+                      cursor: "pointer", letterSpacing: "0.12em", padding: "4px 0",
+                      display: "block", marginTop: 2,
+                    }}
+                  >
+                    reset dates
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -1415,6 +1566,8 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
     </>
   );
 }
+
+
 
 /* ─── Overflow / hamburger menu ─────────────────────────────────────────── */
 function OverflowMenu({ isDark, onLocate, locationStatus, onReset, onRandom, onToggleHeatmap, showHeatmap, onToggleTheme, onExportImport, onTipJar, onHelp, onPlaceMode, placingActive, onSearchMemories }) {
@@ -1714,8 +1867,8 @@ export default function Yearning() {
   const dateBounds = useMemo(() => {
     const stamps = pins.map(p => p.createdAt || 0).filter(Boolean);
     if (stamps.length === 0) return null;
-    const min = Math.min(...stamps), max = Math.max(...stamps, Date.now());
-    return max - min < 86400000 * 14 ? null : [min, max];
+    const min = Math.min(...stamps);
+    return [min, Date.now()];
   }, [pins]);
 
   useEffect(() => {
