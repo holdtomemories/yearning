@@ -270,9 +270,9 @@ const GLOBAL_CSS = `
   ::-webkit-scrollbar{width:4px;height:4px}
   ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15);border-radius:2px}
   body.theme-light ::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.2)}
-  .yr-tool-btn{width:48px;height:48px;border-radius:8px;cursor:pointer;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;font-size:17px;transition:all 0.18s;border:1px solid;-webkit-tap-highlight-color:transparent;user-select:none;flex-shrink:0;-webkit-user-select:none}
+  .yr-tool-btn{width:54px;height:54px;border-radius:12px;cursor:pointer;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;font-size:20px;transition:all 0.18s;border:1px solid;-webkit-tap-highlight-color:transparent;user-select:none;flex-shrink:0;-webkit-user-select:none}
   .yr-tool-btn:active{transform:scale(0.90)}
-  .yr-mood-chip{padding:8px 16px;border-radius:20px;cursor:pointer;border:1.5px solid;font-family:'Lora',serif;font-size:13px;letter-spacing:.1em;transition:all 0.15s;white-space:nowrap;-webkit-tap-highlight-color:transparent;min-height:38px;display:inline-flex;align-items:center;font-weight:500}
+  .yr-mood-chip{padding:11px 18px;border-radius:20px;cursor:pointer;border:1.5px solid;font-family:'Lora',serif;font-size:14px;letter-spacing:.1em;transition:all 0.15s;white-space:nowrap;-webkit-tap-highlight-color:transparent;min-height:48px;display:inline-flex;align-items:center;font-weight:500}
   .yr-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.66);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;animation:fadeIn 0.2s ease;z-index:200;padding:16px;overflow-y:auto}
   .yr-modal{animation:fadeUp 0.28s ease forwards}
   .yr-spotlight{position:fixed;border-radius:50%;border:2px solid rgba(192,132,252,0.85);pointer-events:none;z-index:1001;animation:pulseRing 1.5s ease-out infinite}
@@ -297,8 +297,8 @@ const GLOBAL_CSS = `
   body.theme-light .yr-slider-track::-webkit-slider-thumb{background:#6d28d9;border-color:#fff}
   body.theme-light .yr-slider-track::-moz-range-thumb{background:#6d28d9;border-color:#fff}
   .yr-paper{background-image:radial-gradient(circle at 20% 30%,rgba(0,0,0,.018) 1px,transparent 1px),radial-gradient(circle at 70% 60%,rgba(0,0,0,.022) 1px,transparent 1px),radial-gradient(circle at 40% 80%,rgba(0,0,0,.015) 1px,transparent 1px),radial-gradient(circle at 90% 20%,rgba(0,0,0,.018) 1px,transparent 1px);background-size:25px 25px,30px 30px,35px 35px,40px 40px}
-  @media(max-width:768px){.yr-tool-btn{width:46px;height:46px;font-size:17px;border-radius:10px}.yr-mood-chip{padding:9px 16px;font-size:13.5px;min-height:40px}}
-  @media(max-width:380px){.yr-tool-btn{width:44px;height:44px}}
+  @media(max-width:768px){.yr-tool-btn{width:52px;height:46px;font-size:19px;border-radius:12px}.yr-mood-chip{padding:9px 16px;font-size:13.5px;min-height:48px}}
+  @media(max-width:380px){.yr-tool-btn{width:50px;height:50px}}
   input,textarea{font-size:16px !important}
 
   /* ── FIX: Search dropdown — always fixed to viewport so it never scrolls with layout ── */
@@ -452,8 +452,8 @@ function Banner({ isDark, color, icon, title, subtitle, actions, style = {} }) {
 
 function BannerBtn({ color, isDark, onClick, filled, children }) {
   const T = useTheme(isDark);
-  if (!filled) return <button onClick={onClick} style={{ background: "transparent", border: "none", color: T.textMuted, fontFamily: "'Lora',serif", fontSize: 11, letterSpacing: "0.1em", cursor: "pointer", padding: "8px 6px", minHeight: 44, minWidth: 44, fontWeight: 500 }}>{children}</button>;
-  return <button onClick={onClick} style={{ background: `${color}22`, border: `1px solid ${color}`, color, padding: "8px 14px", borderRadius: 5, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.14em", fontWeight: 700, minHeight: 44 }}>{children}</button>;
+  if (!filled) return <button onClick={onClick} style={{ background: "transparent", border: "none", color: T.textMuted, fontFamily: "'Lora',serif", fontSize: 11, letterSpacing: "0.1em", cursor: "pointer", padding: "8px 6px", minHeight: 52, minWidth: 52, fontWeight: 500 }}>{children}</button>;
+  return <button onClick={onClick} style={{ background: `${color}22`, border: `1px solid ${color}`, color, padding: "8px 14px", borderRadius: 5, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.14em", fontWeight: 700, minHeight: 52 }}>{children}</button>;
 }
 
 /* ─── Seal ──────────────────────────────────────────────────────────────── */
@@ -563,8 +563,8 @@ function WritingModal({ coords, existingPin, onSave, onCancel, isDark, anniversa
         <textarea rows={5} placeholder="What do you want to remember about this place?" value={draft.body} onChange={e => d("body", e.target.value)}
           style={{ width: "100%", background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)", border: `1px solid ${T.panelBorder}`, borderRadius: 6, padding: 12, marginBottom: 20, color: T.textPrimary, fontFamily: "'Lora',serif", lineHeight: 1.85, fontStyle: "italic", outline: "none", letterSpacing: "0.02em" }} />
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button onClick={() => { haptic("light"); onCancel(); }} style={{ background: "transparent", border: `1px solid ${T.panelBorder}`, color: T.textSec, padding: "10px 20px", borderRadius: 6, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.1em", minHeight: 44, fontWeight: 500 }}>{isEdit ? "cancel" : "discard"}</button>
-          <button onClick={handleSave} disabled={!valid} style={{ background: valid ? `${mood.color}28` : "transparent", border: `1px solid ${valid ? mood.color : T.panelBorder}`, color: valid ? mood.color : T.textFaint, padding: "10px 24px", borderRadius: 6, cursor: valid ? "pointer" : "not-allowed", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.12em", minHeight: 44, fontWeight: 700 }}>{isEdit ? "save changes ✦" : "plant it ✦"}</button>
+          <button onClick={() => { haptic("light"); onCancel(); }} style={{ background: "transparent", border: `1px solid ${T.panelBorder}`, color: T.textSec, padding: "10px 20px", borderRadius: 6, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.1em", minHeight: 52, fontWeight: 500 }}>{isEdit ? "cancel" : "discard"}</button>
+          <button onClick={handleSave} disabled={!valid} style={{ background: valid ? `${mood.color}28` : "transparent", border: `1px solid ${valid ? mood.color : T.panelBorder}`, color: valid ? mood.color : T.textFaint, padding: "10px 24px", borderRadius: 6, cursor: valid ? "pointer" : "not-allowed", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.12em", minHeight: 52, fontWeight: 700 }}>{isEdit ? "save changes ✦" : "plant it ✦"}</button>
         </div>
       </div>
     </Overlay>
@@ -589,8 +589,8 @@ function ForgetModal({ pin, onConfirm, onCancel, isDark }) {
           <span style={{ fontFamily: "'Lora',serif", fontSize: 11.5, color: isDark ? "rgba(252,165,165,0.95)" : "#b91c1c", letterSpacing: "0.16em", fontWeight: 600 }}>this cannot be undone</span>
         </div>
         <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-          <button onClick={() => { haptic("light"); onCancel(); }} style={{ background: "transparent", border: `1px solid ${T.panelBorder}`, color: T.textSec, padding: "10px 24px", borderRadius: 6, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.14em", minHeight: 44, fontWeight: 500 }}>keep it</button>
-          <button onClick={() => { haptic("heavy"); playSound("forget"); onConfirm(); }} style={{ background: "rgba(220,38,38,0.14)", border: "1px solid rgba(220,38,38,0.5)", color: isDark ? "rgba(252,165,165,1)" : "#b91c1c", padding: "10px 24px", borderRadius: 6, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.14em", minHeight: 44, fontWeight: 700 }}>let it go</button>
+          <button onClick={() => { haptic("light"); onCancel(); }} style={{ background: "transparent", border: `1px solid ${T.panelBorder}`, color: T.textSec, padding: "10px 24px", borderRadius: 6, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.14em", minHeight: 52, fontWeight: 500 }}>keep it</button>
+          <button onClick={() => { haptic("heavy"); playSound("forget"); onConfirm(); }} style={{ background: "rgba(220,38,38,0.14)", border: "1px solid rgba(220,38,38,0.5)", color: isDark ? "rgba(252,165,165,1)" : "#b91c1c", padding: "10px 24px", borderRadius: 6, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.14em", minHeight: 52, fontWeight: 700 }}>let it go</button>
         </div>
       </div>
     </Overlay>
@@ -876,7 +876,7 @@ function HelpModal({ onClose, isDark, onEnableNotifications, notifPermission, on
       <ModalLabel isDark={isDark}>help center</ModalLabel>
       <ModalTitle isDark={isDark}>how to use yearning</ModalTitle>
       {listeningDays > 0 && (
-        <div style={{ background: isDark ? "rgba(168,85,247,0.07)" : "rgba(109,40,217,0.05)", border: `1px solid ${isDark ? "rgba(168,85,247,0.22)" : "rgba(109,40,217,0.18)"}`, borderLeft: `3px solid ${purple}`, borderRadius: "0 6px 6px 0", padding: "11px 14px", marginBottom: 22 }}>
+        <div style={{ background: isDark ? "rgba(168,85,247,0.07)" : "rgba(109,40,217,0.05)", border: `1px solid ${isDark ? "rgba(168,85,247,0.22)" : "rgba(109,40,217,0.18)"}`, borderLeft: `3px solid ${purple}`, borderRadius: "0 6px 6px 0", padding: "14px 16px", marginBottom: 22 }}>
           <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: "italic", fontSize: 14.5, color: T.textPrimary, lineHeight: 1.45 }}>
             You've been listening to yourself for <strong style={{ color: purple, fontStyle: "normal", fontWeight: 600 }}>{listeningDays} {listeningDays === 1 ? "day" : "days"}</strong>.
           </div>
@@ -901,7 +901,7 @@ function HelpModal({ onClose, isDark, onEnableNotifications, notifPermission, on
       </Sect>
       <Sect title="location reminders">
         <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: T.textSec, fontStyle: "italic", marginBottom: 12, lineHeight: 1.7 }}>When enabled, yearning quietly reminds you when you arrive somewhere new — within {NEARBY_KM}km of where you've been before.</div>
-        <button onClick={onEnableNotifications} disabled={notifPermission !== "default"} style={{ width: "100%", padding: "11px 0", borderRadius: 6, marginBottom: 14, background: ns.bg, border: `1px solid ${ns.border}`, color: ns.color, fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.14em", fontWeight: 700, cursor: notifPermission === "default" ? "pointer" : "default", minHeight: 44 }}>{ns.label}</button>
+        <button onClick={onEnableNotifications} disabled={notifPermission !== "default"} style={{ width: "100%", padding: "11px 0", borderRadius: 6, marginBottom: 14, background: ns.bg, border: `1px solid ${ns.border}`, color: ns.color, fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.14em", fontWeight: 700, cursor: notifPermission === "default" ? "pointer" : "default", minHeight: 52 }}>{ns.label}</button>
       </Sect>
       <Sect title="add to homescreen">
         <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: T.textSec, fontStyle: "italic", marginBottom: 14, lineHeight: 1.65 }}>Keep yearning just a tap away — it works like a native app.</div>
@@ -923,7 +923,7 @@ function HelpModal({ onClose, isDark, onEnableNotifications, notifPermission, on
         <strong style={{ color: T.textPrimary, fontWeight: 700, fontStyle: "normal" }}>Your memories are safe across updates.</strong>{" "}{pinCount > 0 ? `All ${pinCount} of your memories will persist` : "All your memories will persist"} every time yearning updates — no resets, no logins, ever.
       </div>
       <div style={{ marginTop: 20, paddingTop: 14, borderTop: `1px solid ${T.panelBorder}`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <button onClick={onShowChangelog} style={{ background: "transparent", border: `1px solid ${T.panelBorder}`, color: T.textSec, padding: "8px 14px", borderRadius: 5, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.14em", fontWeight: 600, minHeight: 36 }}>what's new</button>
+        <button onClick={onShowChangelog} style={{ background: "transparent", border: `1px solid ${T.panelBorder}`, color: T.textSec, padding: "8px 14px", borderRadius: 5, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.14em", fontWeight: 600, minHeight: 44 }}>what's new</button>
         <span style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.18em", fontWeight: 500 }}>yearning v{APP_VERSION}</span>
       </div>
     </Modal>
@@ -962,7 +962,7 @@ function WhatsNewModal({ entries, isFirstAcknowledgement, onClose, isDark, pinCo
       ))}
       <div style={{ marginTop: 22, display: "flex", gap: 10, justifyContent: "flex-end", alignItems: "center" }}>
         <span style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: T.textMuted, letterSpacing: "0.16em", marginRight: "auto", fontWeight: 500 }}>v{APP_VERSION}</span>
-        <button onClick={() => { haptic("medium"); onClose(); }} style={{ background: `${purple}28`, border: `1px solid ${purple}`, color: purple, padding: "10px 22px", borderRadius: 6, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.14em", minHeight: 44, fontWeight: 700 }}>continue ✦</button>
+        <button onClick={() => { haptic("medium"); onClose(); }} style={{ background: `${purple}28`, border: `1px solid ${purple}`, color: purple, padding: "10px 22px", borderRadius: 6, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.14em", minHeight: 52, fontWeight: 700 }}>continue ✦</button>
       </div>
     </Modal>
   );
@@ -992,7 +992,7 @@ function OnThisDayNudge({ pin, isDark, onView, onDismiss }) {
   const yearLabel = years === 1 ? "a year ago" : `${years} years ago`;
   return (
     <div style={{ position: "fixed", top: "max(72px, calc(env(safe-area-inset-top, 0px) + 72px))", left: "50%", transform: "translateX(-50%)", background: T.panelBg, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${mc}55`, borderLeft: `3px solid ${mc}`, borderRadius: "0 8px 8px 0", padding: "14px 18px 12px 16px", zIndex: 130, animation: "slideUpIn 0.5s ease", width: "min(420px, calc(100vw - 28px))", boxShadow: isDark ? "0 8px 32px rgba(0,0,0,0.55)" : "0 8px 32px rgba(0,0,0,0.18)" }}>
-      <button onClick={onDismiss} style={{ position: "absolute", top: 6, right: 10, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4, minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="Dismiss">×</button>
+      <button onClick={onDismiss} style={{ position: "absolute", top: 6, right: 10, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4, minWidth: 52, minHeight: 52, display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="Dismiss">×</button>
       <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: mc, letterSpacing: "0.28em", textTransform: "uppercase", fontWeight: 700, marginBottom: 4 }}>on this day</div>
       <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: "italic", fontSize: 15, color: T.textPrimary, fontWeight: 500, lineHeight: 1.4, marginBottom: 8, paddingRight: 20 }}>{yearLabel}, you wrote here…</div>
       <button onClick={onView} style={{ width: "100%", background: "transparent", border: "none", textAlign: "left", cursor: "pointer", padding: 0 }}>
@@ -1022,8 +1022,8 @@ function WelcomeModal({ onStartTour, onSkip }) {
           </div>
         ))}
         <div style={{ display: "flex", gap: 10, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", marginTop: 10 }}>
-          <button onClick={() => { haptic("light"); onSkip(); }} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.16)", color: "rgba(232,228,217,0.7)", fontFamily: "'Lora',serif", fontSize: 12, letterSpacing: "0.16em", cursor: "pointer", padding: "11px 20px", borderRadius: 6, minHeight: 44, fontWeight: 500 }}>skip tour</button>
-          <button onClick={() => { haptic("medium"); onStartTour(); }} style={{ background: "rgba(168,85,247,0.18)", border: "1px solid rgba(168,85,247,0.7)", color: "rgba(216,180,254,1)", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.2em", padding: "12px 28px", borderRadius: 6, cursor: "pointer", minHeight: 44, fontWeight: 700 }}>show me around →</button>
+          <button onClick={() => { haptic("light"); onSkip(); }} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.16)", color: "rgba(232,228,217,0.7)", fontFamily: "'Lora',serif", fontSize: 12, letterSpacing: "0.16em", cursor: "pointer", padding: "11px 20px", borderRadius: 6, minHeight: 52, fontWeight: 500 }}>skip tour</button>
+          <button onClick={() => { haptic("medium"); onStartTour(); }} style={{ background: "rgba(168,85,247,0.18)", border: "1px solid rgba(168,85,247,0.7)", color: "rgba(216,180,254,1)", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.2em", padding: "12px 28px", borderRadius: 6, cursor: "pointer", minHeight: 52, fontWeight: 700 }}>show me around →</button>
         </div>
       </div>
     </div>
@@ -1035,12 +1035,12 @@ function FirstPlantNudge({ isDark, onPlantHere, onPlantWhere, onDismiss, hasLoca
   const purple = isDark ? "#a855f7" : "#6d28d9";
   return (
     <div style={{ position: "fixed", bottom: "max(120px, calc(env(safe-area-inset-bottom, 0px) + 120px))", left: "50%", transform: "translateX(-50%)", background: T.panelBg, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: `1px solid ${purple}50`, borderLeft: `3px solid ${purple}`, borderRadius: "0 8px 8px 0", padding: "16px 18px 14px", zIndex: 120, animation: "fadeUp 0.4s ease", width: "min(360px, calc(100vw - 28px))", boxShadow: isDark ? "0 8px 32px rgba(0,0,0,0.55)" : "0 8px 32px rgba(0,0,0,0.18)" }}>
-      <button onClick={onDismiss} style={{ position: "absolute", top: 8, right: 10, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4, minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="Dismiss">×</button>
+      <button onClick={onDismiss} style={{ position: "absolute", top: 8, right: 10, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4, minWidth: 52, minHeight: 52, display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="Dismiss">×</button>
       <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, color: T.textPrimary, marginBottom: 6, paddingRight: 20, fontWeight: 500 }}>you're somewhere right now ✦</div>
       <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: T.textSec, fontStyle: "italic", lineHeight: 1.7, marginBottom: 14 }}>This moment will pass. Plant a thought here so you can come back to it.</div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button onClick={onDismiss} style={{ background: "transparent", border: `1px solid ${T.panelBorder}`, color: T.textSec, padding: "9px 14px", borderRadius: 6, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 12, letterSpacing: "0.1em", minHeight: 44, fontWeight: 500 }}>not now</button>
-        <button onClick={hasLocation ? onPlantHere : onPlantWhere} style={{ background: `${purple}28`, border: `1px solid ${purple}`, color: purple, padding: "9px 18px", borderRadius: 6, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 12.5, letterSpacing: "0.12em", minHeight: 44, fontWeight: 700, flex: 1 }}>
+        <button onClick={onDismiss} style={{ background: "transparent", border: `1px solid ${T.panelBorder}`, color: T.textSec, padding: "9px 14px", borderRadius: 6, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 12, letterSpacing: "0.1em", minHeight: 52, fontWeight: 500 }}>not now</button>
+        <button onClick={hasLocation ? onPlantHere : onPlantWhere} style={{ background: `${purple}28`, border: `1px solid ${purple}`, color: purple, padding: "9px 18px", borderRadius: 6, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 12.5, letterSpacing: "0.12em", minHeight: 52, fontWeight: 700, flex: 1 }}>
           {hasLocation ? "plant where I am ✦" : "plant first thought →"}
         </button>
       </div>
@@ -1079,10 +1079,10 @@ function TourOverlay({ step, total, onNext, onPrev, onSkip }) {
         <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, color: "#fff", marginBottom: 8, lineHeight: 1.3, fontWeight: 500 }}>{title}</div>
         <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: "rgba(232,228,217,0.92)", lineHeight: 1.7, fontStyle: "italic", marginBottom: 14 }}>{desc}</div>
         <div style={{ display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center" }}>
-          <button onClick={() => { haptic("light"); onSkip(); }} style={{ background: "transparent", border: "none", color: "rgba(232,228,217,0.6)", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.14em", cursor: "pointer", padding: 4, fontWeight: 500, minHeight: 44, minWidth: 44 }}>skip</button>
+          <button onClick={() => { haptic("light"); onSkip(); }} style={{ background: "transparent", border: "none", color: "rgba(232,228,217,0.6)", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.14em", cursor: "pointer", padding: 4, fontWeight: 500, minHeight: 52, minWidth: 52 }}>skip</button>
           <div style={{ display: "flex", gap: 6 }}>
-            {step > 0 && <button onClick={() => { haptic("light"); onPrev(); }} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.18)", color: "rgba(232,228,217,0.85)", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.14em", cursor: "pointer", padding: "7px 14px", borderRadius: 5, minHeight: 44, fontWeight: 500 }}>← back</button>}
-            <button onClick={() => { haptic("medium"); onNext(); }} style={{ background: "rgba(168,85,247,0.2)", border: "1px solid rgba(168,85,247,0.7)", color: "rgba(216,180,254,1)", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.18em", cursor: "pointer", padding: "7px 16px", borderRadius: 5, minHeight: 44, fontWeight: 700 }}>{step === total - 1 ? "begin ✦" : "next →"}</button>
+            {step > 0 && <button onClick={() => { haptic("light"); onPrev(); }} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.18)", color: "rgba(232,228,217,0.85)", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.14em", cursor: "pointer", padding: "7px 14px", borderRadius: 5, minHeight: 52, fontWeight: 500 }}>← back</button>}
+            <button onClick={() => { haptic("medium"); onNext(); }} style={{ background: "rgba(168,85,247,0.2)", border: "1px solid rgba(168,85,247,0.7)", color: "rgba(216,180,254,1)", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.18em", cursor: "pointer", padding: "7px 16px", borderRadius: 5, minHeight: 52, fontWeight: 700 }}>{step === total - 1 ? "begin ✦" : "next →"}</button>
           </div>
         </div>
       </div>
@@ -1162,7 +1162,7 @@ function ExpandableSearch({ isDark }) {
         <button
           onClick={() => { haptic("light"); setOpen(o => !o); }}
           style={{
-            width: 44, height: 44, borderRadius: 10, background: open ? (isDark ? "rgba(192,132,252,0.15)" : "rgba(109,40,217,0.1)") : pillBg,
+            width: 54, height: 54, borderRadius: 12, background: open ? (isDark ? "rgba(192,132,252,0.15)" : "rgba(109,40,217,0.1)") : pillBg,
             backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
             border: `1px solid ${open ? accent : pillBorder}`,
             color: open ? (isDark ? "#c084fc" : "#6d28d9") : T.toolColor,
@@ -1441,7 +1441,7 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
         <button
           onClick={handleOpen}
           style={{
-            width: 44, height: 44, borderRadius: 10, cursor: "pointer",
+            width: 54, height: 54, borderRadius: 12, cursor: "pointer",
             background: open ? `${accent}22` : T.toolBg,
             backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
             border: `1px solid ${open || anyActive ? accent : T.toolBorder}`,
@@ -1489,7 +1489,7 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
               {anyActive && (
                 <button
                   onClick={() => { onClear(); if (dateBounds) setDateFilterRange([dateBounds[0], dateBounds[1]]); }}
-                  style={{ background: "transparent", border: "none", fontFamily: "'Lora',serif", fontSize: 10.5, color: accent, cursor: "pointer", letterSpacing: "0.1em", fontWeight: 700, padding: "2px 0", minHeight: 44 }}
+                  style={{ background: "transparent", border: "none", fontFamily: "'Lora',serif", fontSize: 10.5, color: accent, cursor: "pointer", letterSpacing: "0.1em", fontWeight: 700, padding: "2px 0", minHeight: 52 }}
                 >
                   clear all
                 </button>
@@ -1510,7 +1510,7 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
                       border: `1px solid ${active ? m.color : T.panelBorder}`,
                       borderRadius: 7, padding: "7px 10px", cursor: "pointer",
                       transition: "all 0.14s", opacity: dimmed ? 0.45 : 1,
-                      minHeight: 44, WebkitTapHighlightColor: "transparent",
+                      minHeight: 52, WebkitTapHighlightColor: "transparent",
                     }}
                   >
                     <div style={{ width: 8, height: 8, borderRadius: "50%", background: m.color, boxShadow: active ? `0 0 7px ${m.color}aa` : "none", flexShrink: 0 }} />
@@ -1583,7 +1583,7 @@ function OverflowMenu({ isDark, onLocate, locationStatus, onReset, onRandom, onT
         id="btn-menu"
         onClick={() => { haptic("light"); setOpen(o => !o); }}
         style={{
-          width: 44, height: 44, borderRadius: 10, cursor: "pointer",
+          width: 54, height: 54, borderRadius: 12, cursor: "pointer",
           background: open ? `${accent}22` : T.toolBg,
           backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
           border: `1px solid ${open ? accent : T.toolBorder}`,
@@ -1623,9 +1623,9 @@ function OverflowMenu({ isDark, onLocate, locationStatus, onReset, onRandom, onT
                   style={{
                     width: "100%", display: "flex", alignItems: "center", gap: 12,
                     background: active ? `${accent}12` : "transparent",
-                    border: "none", cursor: "pointer", padding: "11px 14px",
+                    border: "none", cursor: "pointer", padding: "14px 16px",
                     transition: "background 0.12s", WebkitTapHighlightColor: "transparent",
-                    minHeight: 44,
+                    minHeight: 52,
                   }}
                   onMouseEnter={e => e.currentTarget.style.background = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"}
                   onMouseLeave={e => e.currentTarget.style.background = active ? `${accent}12` : "transparent"}
@@ -1685,7 +1685,7 @@ function PinCard({ pin, mapInstance, isDark, onClose, onForget, onEdit, onShare 
             <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: mc, letterSpacing: "0.24em", textTransform: "uppercase", marginBottom: 5, fontWeight: 700 }}>{moodLabel} · {pin.date}</div>
             <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 17, fontWeight: 500, color: T.textPrimary, lineHeight: 1.3 }}>{pin.title}</div>
           </div>
-          <button onClick={() => { haptic("light"); onClose(); }} style={{ background: "transparent", border: "none", color: T.textSec, cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 0, flexShrink: 0, minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="Close">×</button>
+          <button onClick={() => { haptic("light"); onClose(); }} style={{ background: "transparent", border: "none", color: T.textSec, cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 0, flexShrink: 0, minWidth: 52, minHeight: 52, display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="Close">×</button>
         </div>
         <div style={{ fontFamily: "'Lora',serif", fontSize: 14, color: T.textSec, lineHeight: 1.85, fontStyle: "italic" }}>{pin.body}</div>
         {pin.editedAt && <div style={{ marginTop: 8, fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, fontStyle: "italic", letterSpacing: "0.04em" }}>edited {new Date(pin.editedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>}
@@ -1694,10 +1694,10 @@ function PinCard({ pin, mapInstance, isDark, onClose, onForget, onEdit, onShare 
           <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, letterSpacing: "0.06em", fontWeight: 500, marginBottom: 10 }}>{pin.lat.toFixed(4)}, {pin.lng.toFixed(4)}</div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
             <div style={{ display: "flex", gap: 12 }}>
-              {editable && <button onClick={() => { haptic("light"); onEdit(pin); }} style={{ background: "transparent", border: "none", color: isDark ? "#c084fc" : "#6d28d9", cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.1em", padding: "6px 0", minHeight: 44, fontWeight: 700 }}>✎ edit</button>}
-              <button onClick={() => { haptic("light"); onShare(pin); }} style={{ background: "transparent", border: "none", color: T.textPrimary, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.1em", padding: "6px 0", minHeight: 44, fontWeight: 600 }}>↗ share</button>
+              {editable && <button onClick={() => { haptic("light"); onEdit(pin); }} style={{ background: "transparent", border: "none", color: isDark ? "#c084fc" : "#6d28d9", cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.1em", padding: "6px 0", minHeight: 52, fontWeight: 700 }}>✎ edit</button>}
+              <button onClick={() => { haptic("light"); onShare(pin); }} style={{ background: "transparent", border: "none", color: T.textPrimary, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.1em", padding: "6px 0", minHeight: 52, fontWeight: 600 }}>↗ share</button>
             </div>
-            <button onClick={() => { haptic("medium"); onForget(pin.id); }} style={{ background: "transparent", border: "none", color: isDark ? "rgba(252,165,165,0.75)" : "rgba(185,28,28,0.85)", cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.1em", padding: "6px 0", minHeight: 44, fontWeight: 600 }}>forget this</button>
+            <button onClick={() => { haptic("medium"); onForget(pin.id); }} style={{ background: "transparent", border: "none", color: isDark ? "rgba(252,165,165,0.75)" : "rgba(185,28,28,0.85)", cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.1em", padding: "6px 0", minHeight: 52, fontWeight: 600 }}>forget this</button>
           </div>
           {!editable && pin.createdAt && <div style={{ marginTop: 6, fontFamily: "'Lora',serif", fontSize: 9.5, color: T.textMuted, fontStyle: "italic", letterSpacing: "0.06em" }}>edits closed · 24h window has passed</div>}
         </div>
@@ -2158,7 +2158,7 @@ export default function Yearning() {
   const showPinCard = selectedPin && !editingPin && !sharingPin && !forgetTargetId;
   const placingActive = mode === "placing";
   const toolStyle = { background: T.toolBg, border: `1px solid ${T.toolBorder}`, color: T.toolColor, boxShadow: isDark ? "0 2px 8px rgba(0,0,0,0.4)" : "0 2px 8px rgba(0,0,0,0.12)" };
-  const zoomBtnStyle = { width: 44, height: 44, borderRadius: 8, cursor: "pointer", background: T.toolBg, border: `1px solid ${isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.22)"}`, color: isDark ? "rgba(232,228,217,0.95)" : "#0a0908", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", boxShadow: isDark ? "0 2px 8px rgba(0,0,0,0.4)" : "0 2px 8px rgba(0,0,0,0.12)", transition: "all 0.15s", WebkitTapHighlightColor: "transparent" };
+  const zoomBtnStyle = { width: 54, height: 54, borderRadius: 12, cursor: "pointer", background: T.toolBg, border: `1px solid ${isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.22)"}`, color: isDark ? "rgba(232,228,217,0.95)" : "#0a0908", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", boxShadow: isDark ? "0 2px 8px rgba(0,0,0,0.4)" : "0 2px 8px rgba(0,0,0,0.12)", transition: "all 0.15s", WebkitTapHighlightColor: "transparent" };
 
   return (
     <>
@@ -2212,7 +2212,7 @@ export default function Yearning() {
       )}
 
       {/* Right toolbar */}
-      <div style={{ position: "fixed", top: "max(14px, calc(env(safe-area-inset-top, 0px) + 14px))", right: 14, zIndex: 120, display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+      <div style={{ position: "fixed", top: "max(14px, calc(env(safe-area-inset-top, 0px) + 14px))", right: 14, zIndex: 120, display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end" }}>
         <ToolBtn id="btn-locate" title="Locate me" onClick={locate} style={toolStyle}>
           {locationStatus === "locating" ? <span style={{ display: "inline-block", animation: "spin 1s linear infinite" }}>◴</span> : "◎"}
         </ToolBtn>
@@ -2241,7 +2241,6 @@ export default function Yearning() {
           />
         </div>
       </div>
-
 
       {/* NOTE: Standalone TimeSlider removed — it now lives inside MoodFilterTray */}
 
