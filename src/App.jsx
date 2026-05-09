@@ -1412,21 +1412,34 @@ function DualRangeSlider({ min, max, valueMin, valueMax, onChange, accent, isDar
 
 function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBounds, dateFilterRange, setDateFilterRange }) {
   const [open, setOpen] = useState(false);
+  const [trayPos, setTrayPos] = useState({ top: 0, left: 0 });
+  const btnRef = useRef(null);
   const T = useTheme(isDark);
   const moods = getMoods(isDark);
   const hasActive = activeMoodFilters.size > 0;
   const accent = isDark ? "#a855f7" : "#6d28d9";
-  const bottomBase = "max(14px, calc(env(safe-area-inset-bottom, 0px) + 14px))";
 
   const dateActive = dateBounds && dateFilterRange &&
     (dateFilterRange[0] !== dateBounds[0] || dateFilterRange[1] !== dateBounds[1]);
   const anyActive = hasActive || dateActive;
 
+  const handleOpen = () => {
+    haptic("light");
+    if (btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      setTrayPos({
+        top: rect.top,
+        left: rect.right + 6,
+      });
+    }
+    setOpen(o => !o);
+  };
+
   return (
     <>
-      <div id="btn-filter" style={{ position: "fixed", left: 14, bottom: bottomBase, zIndex: 115 }}>
+      <div id="btn-filter" ref={btnRef} style={{ position: "relative", zIndex: 115 }}>
         <button
-          onClick={() => { haptic("light"); setOpen(o => !o); }}
+          onClick={handleOpen}
           style={{
             width: 44, height: 44, borderRadius: 10, cursor: "pointer",
             background: open ? `${accent}22` : T.toolBg,
@@ -1457,29 +1470,25 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
           <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 108 }} />
           <div style={{
             position: "fixed",
-            left: 14,
-            bottom: `calc(${bottomBase} + 54px)`,
+            left: trayPos.left,
+            top: trayPos.center,
             zIndex: 109,
             background: T.panelBg,
             backdropFilter: "blur(18px)", WebkitBackdropFilter: "blur(18px)",
             border: `1px solid ${accent}40`, borderLeft: `3px solid ${accent}`,
-            borderRadius: "0 10px 10px 0",
+            borderRadius: "0 10px 10px 10px",
             padding: "16px 16px 14px",
-            width: "min(260px, calc(100vw - 80px))",
-            maxHeight: "calc(100dvh - 160px)",
+            width: "min(260px, calc(100vw - 90px))",
+            maxHeight: `calc(100dvh - ${trayPos.top}px - 20px)`,
             overflowY: "auto",
             boxShadow: isDark ? "0 8px 32px rgba(0,0,0,0.55)" : "0 8px 32px rgba(0,0,0,0.18)",
-            animation: "slideUpIn 0.22s ease",
+            animation: "fadeUp 0.2s ease",
           }}>
-            {/* Header */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <div style={{ fontFamily: "'Lora',serif", fontSize: 9.5, color: T.textMuted, letterSpacing: "0.28em", textTransform: "uppercase", fontWeight: 700 }}>filter moods</div>
               {anyActive && (
                 <button
-                  onClick={() => {
-                    onClear();
-                    if (dateBounds) setDateFilterRange([dateBounds[0], dateBounds[1]]);
-                  }}
+                  onClick={() => { onClear(); if (dateBounds) setDateFilterRange([dateBounds[0], dateBounds[1]]); }}
                   style={{ background: "transparent", border: "none", fontFamily: "'Lora',serif", fontSize: 10.5, color: accent, cursor: "pointer", letterSpacing: "0.1em", fontWeight: 700, padding: "2px 0", minHeight: 44 }}
                 >
                   clear all
@@ -1487,7 +1496,6 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
               )}
             </div>
 
-            {/* Mood chips */}
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               {moods.map(m => {
                 const active = activeMoodFilters.has(m.key);
@@ -1513,26 +1521,15 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
               })}
             </div>
 
-            {/* Time travel — custom dual range slider, no CSS class dependency */}
-          {dateBounds && dateFilterRange && (              <>
+            {dateBounds && dateFilterRange && (
+              <>
                 <div style={{ borderTop: `1px solid ${T.panelBorder}`, margin: "14px 0 12px" }} />
-
                 <div style={{ fontFamily: "'Lora',serif", fontSize: 9.5, color: T.textMuted, letterSpacing: "0.28em", textTransform: "uppercase", fontWeight: 700, marginBottom: 4 }}>
                   time travel
                 </div>
-
-                {/* Selected range label */}
-                <div style={{
-                  fontFamily: "'Playfair Display',serif",
-                  fontSize: 11.5,
-                  color: T.textSec,
-                  fontStyle: "italic",
-                  marginBottom: 2,
-                  minHeight: 18,
-                }}>
+                <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 11.5, color: T.textSec, fontStyle: "italic", marginBottom: 2, minHeight: 18 }}>
                   {fmtMonthYear(dateFilterRange[0])} — {fmtMonthYear(dateFilterRange[1])}
                 </div>
-
                 <DualRangeSlider
                   min={dateBounds[0]}
                   max={dateBounds[1]}
@@ -1543,17 +1540,10 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
                   isDark={isDark}
                   T={T}
                 />
-
-                {/* Reset date filter */}
                 {dateActive && (
                   <button
                     onClick={() => setDateFilterRange([dateBounds[0], dateBounds[1]])}
-                    style={{
-                      background: "transparent", border: "none",
-                      fontFamily: "'Lora',serif", fontSize: 10, color: T.textFaint,
-                      cursor: "pointer", letterSpacing: "0.12em", padding: "4px 0",
-                      display: "block", marginTop: 2,
-                    }}
+                    style={{ background: "transparent", border: "none", fontFamily: "'Lora',serif", fontSize: 10, color: T.textFaint, cursor: "pointer", letterSpacing: "0.12em", padding: "4px 0", display: "block", marginTop: 2 }}
                   >
                     reset dates
                   </button>
@@ -1566,7 +1556,6 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
     </>
   );
 }
-
 
 
 /* ─── Overflow / hamburger menu ─────────────────────────────────────────── */
@@ -2204,13 +2193,22 @@ export default function Yearning() {
 
       {/* Left column: zoom + expandable search */}
       {mapReady && (
-        <div style={{ position: "fixed", left: 14, top: "50%", transform: "translateY(-50%)", zIndex: 115, display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <button aria-label="Zoom in" onClick={() => { haptic("light"); mapRef.current?.zoomIn(); }} style={{ ...zoomBtnStyle, fontSize: 22, fontWeight: 500 }}>+</button>
-            <button aria-label="Zoom out" onClick={() => { haptic("light"); mapRef.current?.zoomOut(); }} style={{ ...zoomBtnStyle, fontSize: 24, fontWeight: 500 }}>−</button>
-          </div>
-          <ExpandableSearch isDark={isDark} />
-        </div>
+       <div style={{ position: "fixed", left: 14, top: "50%", transform: "translateY(-50%)", zIndex: 115, display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
+  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <button aria-label="Zoom in" onClick={() => { haptic("light"); mapRef.current?.zoomIn(); }} style={{ ...zoomBtnStyle, fontSize: 22, fontWeight: 500 }}>+</button>
+    <button aria-label="Zoom out" onClick={() => { haptic("light"); mapRef.current?.zoomOut(); }} style={{ ...zoomBtnStyle, fontSize: 24, fontWeight: 500 }}>−</button>
+  </div>
+  <ExpandableSearch isDark={isDark} />
+  <MoodFilterTray
+    isDark={isDark}
+    activeMoodFilters={activeMoodFilters}
+    onToggle={toggleMoodFilter}
+    onClear={() => setActiveMoodFilters(new Set())}
+    dateBounds={dateBounds}
+    dateFilterRange={dateFilterRange}
+    setDateFilterRange={setDateFilterRange}
+  />
+</div>
       )}
 
       {/* Right toolbar */}
@@ -2244,16 +2242,6 @@ export default function Yearning() {
         </div>
       </div>
 
-      {/* Mood filter tray (now contains the time slider too) */}
-      <MoodFilterTray
-        isDark={isDark}
-        activeMoodFilters={activeMoodFilters}
-        onToggle={toggleMoodFilter}
-        onClear={() => setActiveMoodFilters(new Set())}
-        dateBounds={dateBounds}
-        dateFilterRange={dateFilterRange}
-        setDateFilterRange={setDateFilterRange}
-      />
 
       {/* NOTE: Standalone TimeSlider removed — it now lives inside MoodFilterTray */}
 
