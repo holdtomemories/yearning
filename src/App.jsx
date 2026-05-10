@@ -2178,7 +2178,7 @@ useEffect(() => {
       {/* Header */}
       <div style={{ position: "fixed", top: "max(14px, calc(env(safe-area-inset-top, 0px) + 14px))", left: 14, zIndex: 100 }}>
         <button onClick={resetView} style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0, display: "block", textAlign: "left", WebkitTapHighlightColor: "transparent" }} aria-label="Reset map view">
-          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 700, fontStyle: "italic", color: T.textPrimary, letterSpacing: "0.02em", lineHeight: 1, textShadow: isDark ? "0 2px 12px rgba(0,0,0,0.6)" : "0 1px 6px rgba(255,255,255,0.8)" }}>yearning</div>
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 700, fontStyle: "italic", color: T.textPrimary, letterSpacing: "0.02em", lineHeight: 1, textShadow: isDark ? "0 2px 12px rgba(0,0,0,0.6)" : "0 1px 6px rgba(255,255,255,0.8)" }}>yearning map</div>
         </button>
         <div style={{ fontFamily: "'Lora',serif", fontSize: 9.5, color: T.textMuted, letterSpacing: "0.22em", textTransform: "uppercase", marginTop: 5, fontWeight: 500, fontStyle: "italic", pointerEvents: "none" }}>map of your unspoken thoughts</div>
 
