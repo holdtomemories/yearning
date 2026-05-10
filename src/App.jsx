@@ -1860,9 +1860,19 @@ export default function Yearning() {
     return [min, Date.now()];
   }, [pins]);
 
-  useEffect(() => {
+useEffect(() => {
     if (!dateBounds) { setDateFilterRange(null); return; }
-    setDateFilterRange(prev => prev ? [Math.max(prev[0], dateBounds[0]), Math.min(prev[1], dateBounds[1])] : [dateBounds[0], dateBounds[1]]);
+    setDateFilterRange(prev => {
+      if (!prev) return [dateBounds[0], dateBounds[1]];
+      // If the user's max thumb was already at (or near) the previous ceiling,
+      // treat it as "pinned to now" and extend it to the new ceiling so that
+      // freshly planted pins are never filtered out.
+      const prevWasAtCeiling = prev[1] >= dateBounds[1] - 86400000 * 2;
+      return [
+        Math.max(prev[0], dateBounds[0]),
+        prevWasAtCeiling ? dateBounds[1] : Math.min(prev[1], dateBounds[1]),
+      ];
+    });
   }, [dateBounds]);
 
   const filteredPins = useMemo(() => pins.filter(p => {
