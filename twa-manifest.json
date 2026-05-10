@@ -1,0 +1,51 @@
+{
+  "packageId": "com.yearningmap.app",
+  "host": "yearningmap.com",
+  "name": "Yearning Map",
+  "launcherName": "Yearning",
+  "display": "standalone",
+  "themeColor": "#0A0A0F",
+  "themeColorDark": "#000000",
+  "navigationColor": "#000000",
+  "navigationColorDark": "#000000",
+  "navigationDividerColor": "#000000",
+  "navigationDividerColorDark": "#000000",
+  "backgroundColor": "#0A0A0F",
+  "enableNotifications": true,
+  "startUrl": "/",
+  "iconUrl": "https://yearningmap.com/icons/icon-512.png",
+  "maskableIconUrl": "https://yearningmap.com/icons/icon-maskable-512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "C:\\Users\\LemFS\\Downloads\\yearning\\yearning.keystore",
+    "alias": "yearningmap"
+  },
+  "appVersionName": "13",
+  "appVersionCode": 13,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://yearningmap.com/manifest.json",
+  "fallbackType": "customtabs",
+  "features": {
+    "locationDelegation": {
+      "enabled": true
+    }
+  },
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://yearningmap.com/",
+  "minSdkVersion": 21,
+  "orientation": "natural",
+  "fingerprints": [],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": [],
+  "protocolHandlers": [],
+  "fileHandlers": [],
+  "launchHandlerClientMode": "",
+  "displayOverride": [],
+  "appVersion": "13"
+}
