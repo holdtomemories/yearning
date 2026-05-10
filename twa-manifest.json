@@ -18,10 +18,10 @@
   "splashScreenFadeOutDuration": 300,
   "signingKey": {
     "path": "C:\\Users\\LemFS\\Downloads\\yearning\\yearning.keystore",
-    "alias": "yearningmap"
+    "alias": "yearning"
   },
-  "appVersionName": "13",
-  "appVersionCode": 13,
+  "appVersionName": "15",
+  "appVersionCode": 15,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://yearningmap.com/manifest.json",
@@ -47,5 +47,5 @@
   "fileHandlers": [],
   "launchHandlerClientMode": "",
   "displayOverride": [],
-  "appVersion": "13"
+  "appVersion": "15"
 }
