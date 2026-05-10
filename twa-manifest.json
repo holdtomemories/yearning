@@ -40,7 +40,12 @@
   "fullScopeUrl": "https://yearningmap.com/",
   "minSdkVersion": 21,
   "orientation": "natural",
-  "fingerprints": [],
+  "fingerprints": [
+  {
+    "name": "yearning",
+    "value": "38:74:55:F1:67:82:AC:FC:6C:EE:13:74:5D:AA:46:55:1B:F9:78:72:73:68:28:BF:CA:19:8A:B1:97:93:A6:CC"
+  }
+],
   "additionalTrustedOrigins": [],
   "retainedBundles": [],
   "protocolHandlers": [],
