@@ -1,7 +1,7 @@
 {
   "rewrites": [
     {
-      "source": "/((?!.well-known).*)",
+      "source": "/((?!\\.well-known).*)",
       "destination": "/index.html"
     }
   ],
@@ -15,7 +15,11 @@
         },
         {
           "key": "Cache-Control",
-          "value": "public, max-age=3600"
+          "value": "no-cache"
+        },
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
         }
       ]
     }
