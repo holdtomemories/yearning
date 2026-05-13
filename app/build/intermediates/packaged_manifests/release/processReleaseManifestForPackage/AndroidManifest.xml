@@ -23,8 +23,8 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.yearningmap.app"
-    android:versionCode="17"
-    android:versionName="17" >
+    android:versionCode="18"
+    android:versionName="18" >
 
     <uses-sdk
         android:minSdkVersion="21"

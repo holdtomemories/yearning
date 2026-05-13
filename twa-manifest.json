@@ -20,8 +20,8 @@
     "path": "C:\\Users\\LemFS\\Downloads\\yearning-twa\\yearning.keystore",
     "alias": "yearning"
   },
-  "appVersionName": "17",
-  "appVersionCode": 17,
+  "appVersionName": "18",
+  "appVersionCode": 18,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://yearningmap.com/manifest.json",
@@ -43,7 +43,7 @@
   "fingerprints": [
     {
       "name": "yearning",
-      "value": "38:74:55:F1:67:82:AC:FC:6C:EE:13:74:5D:AA:46:55:1B:F9:78:72:73:68:28:BF:CA:19:8A:B1:97:93:A6:CC"
+      "value": "20:21:CE:B2:F0:E6:80:AB:84:A6:C3:1F:09:AD:1B:67:A7:42:19:AD:59:73:9C:43:0D:CB:70:AD:90:DD:44:0F"
     }
   ],
   "additionalTrustedOrigins": [],
@@ -52,5 +52,5 @@
   "fileHandlers": [],
   "launchHandlerClientMode": "",
   "displayOverride": [],
-  "appVersion": "17"
+  "appVersion": "18"
 }
