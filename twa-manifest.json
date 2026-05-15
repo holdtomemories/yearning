@@ -4,13 +4,13 @@
   "name": "Yearning Map",
   "launcherName": "Yearning",
   "display": "standalone",
-  "themeColor": "#0A0A0F",
+  "themeColor": "#000000",
   "themeColorDark": "#000000",
   "navigationColor": "#000000",
   "navigationColorDark": "#000000",
   "navigationDividerColor": "#000000",
   "navigationDividerColorDark": "#000000",
-  "backgroundColor": "#0A0A0F",
+  "backgroundColor": "#000000",
   "enableNotifications": true,
   "startUrl": "/",
   "iconUrl": "https://yearningmap.com/icons/icon-512.png",
@@ -20,8 +20,8 @@
     "path": "C:\\Users\\LemFS\\Downloads\\yearning-twa\\yearning.keystore",
     "alias": "yearning"
   },
-  "appVersionName": "2.1.1",
-  "appVersionCode": 3,
+  "appVersionName": "2.1.2",
+  "appVersionCode": 5,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://yearningmap.com/manifest.json",
@@ -52,5 +52,5 @@
   "fileHandlers": [],
   "launchHandlerClientMode": "",
   "displayOverride": [],
-  "appVersion": "2.1.1"
+  "appVersion": "2.1.2"
 }
