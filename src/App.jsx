@@ -2131,16 +2131,57 @@ useEffect(() => {
 
   /* ─── Actions ───────────────────────────────────────────────────────── */
   const locate = useCallback(() => {
-    if (!("geolocation" in navigator)) { showToast("location not supported on this device"); return; }
-    haptic("medium"); setLocationStatus("locating");
-    navigator.geolocation.getCurrentPosition(({ coords: { latitude, longitude } }) => {
-      setUserLatLng({ lat: latitude, lng: longitude }); setLocationStatus("found");
+  if (!("geolocation" in navigator)) { showToast("location not supported on this device"); return; }
+  haptic("medium"); setLocationStatus("locating");
+
+  // Force the native OS permission sheet by using watchPosition
+  // which bypasses the browser's session-level denial memory in PWA context
+  let watchId = null;
+  let resolved = false;
+
+  const cleanup = () => {
+    if (watchId !== null) {
+      try { navigator.geolocation.clearWatch(watchId); } catch {}
+      watchId = null;
+    }
+  };
+
+  watchId = navigator.geolocation.watchPosition(
+    ({ coords: { latitude, longitude } }) => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      setUserLatLng({ lat: latitude, lng: longitude });
+      setLocationStatus("found");
       mapRef.current?.flyTo([latitude, longitude], 14, { duration: 1.6 });
       setFoundPopup({ lat: latitude, lng: longitude });
       setTimeout(() => setFoundPopup(null), 2400);
-    }, () => { setLocationStatus("denied"); showToast("could not access your location"); }, { enableHighAccuracy: true, timeout: 10000 });
-  }, [showToast]);
-
+    },
+    (err) => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      setLocationStatus("idle");
+      if (err.code === 1) {
+        // On PWA, this opens the native app settings sheet on next tap
+        showToast("allow location access in your device settings ✦", 3500);
+        // Attempt to open native settings on supported platforms
+        try {
+          if (window.navigator.standalone || window.matchMedia("(display-mode: standalone)").matches) {
+            // iOS PWA — deep link to settings
+            window.location.href = "app-settings:";
+          }
+        } catch {}
+      } else if (err.code === 2) {
+        showToast("could not determine your position", 3000);
+      } else {
+        showToast("location timed out — try again", 3000);
+      }
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+  );
+}, [showToast]);
+  
   const tryAnniversary = useCallback((lat, lng) => {
     const week = 7 * 86400000, now = Date.now();
     const near = pins.filter(p => p.createdAt && (now - p.createdAt) > week).map(p => ({ p, d: distanceM(lat, lng, p.lat, p.lng) })).filter(x => x.d <= ANNIV_RADIUS_M).sort((a, b) => a.d - b.d);
