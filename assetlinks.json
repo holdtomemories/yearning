@@ -3,6 +3,10 @@
       "target": {
         "namespace": "android_app",
         "package_name": "com.yearningmap.app",
-        "sha256_cert_fingerprints": ["20:21:CE:B2:F0:E6:80:AB:84:A6:C3:1F:09:AD:1B:67:A7:42:19:AD:59:73:9C:43:0D:CB:70:AD:90:DD:44:0F"]
+        "sha256_cert_fingerprints": [
+          "20:21:CE:B2:F0:E6:80:AB:84:A6:C3:1F:09:AD:1B:67:A7:42:19:AD:59:73:9C:43:0D:CB:70:AD:90:DD:44:0F",
+      "38:74:55:F1:67:82:AC:FC:6C:EE:13:74:5D:AA:46:55:1B:F9:78:72:73:68:28:BF:CA:19:8A:B1:97:93:A6:CC",
+      "C9:41:DC:4D:AF:8D:56:06:31:2C:C2:C0:5A:5C:3D:04:0F:D5:66:08:64:E2:53:C9:EF:C5:A7:51:28:E1:10:0F"
+      ]
       }
     }]
