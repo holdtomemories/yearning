@@ -2139,7 +2139,7 @@ useEffect(() => {
       const perm = await navigator.permissions.query({ name: "geolocation" });
       if (perm.state === "denied") {
         setLocationStatus("idle");
-        showToast("location blocked — please enable it in your browser settings", 3500);
+        showToast("location blocked, please enable it in your browser settings", 3500);
         return;
       }
     }
@@ -2160,7 +2160,7 @@ useEffect(() => {
       } else if (err.code === 2) {
         showToast("could not determine your position", 3000);
       } else {
-        showToast("location timed out — try again", 3000);
+        showToast("location timed out, try again", 3000);
       }
     },
     { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
