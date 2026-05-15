@@ -82,6 +82,23 @@ async function reverseGeocode(lat, lng) {
   } catch { return { city: "", country: "" }; }
 }
 
+// ↓ INSERT getIpCenter RIGHT HERE ↓
+
+async function getIpCenter() {
+  const endpoints = [
+    () => fetch("https://ipapi.co/json/", { signal: AbortSignal.timeout(4000) })
+            .then(r => r.json())
+            .then(d => d.latitude && d.longitude ? [d.latitude, d.longitude] : null),
+    () => fetch("https://ip-api.com/json/?fields=lat,lon,status", { signal: AbortSignal.timeout(4000) })
+            .then(r => r.json())
+            .then(d => d.status === "success" ? [d.lat, d.lon] : null),
+  ];
+  for (const fn of endpoints) {
+    try { const result = await fn(); if (result) return result; } catch {}
+  }
+  return null;
+}
+
 /* ─── Seal generation ───────────────────────────────────────────────────── */
 function makeSeed(lat, lng, ts, city = "") {
   const str = `${lat.toFixed(4)}|${lng.toFixed(4)}|${ts}|${city}`;
@@ -1721,6 +1738,7 @@ export default function Yearning() {
   const lastNotifLocRef = useRef(null);
   const geocodeQueueRef = useRef([]);
   const geocodingRef = useRef(false);
+  const homeCenterRef = useRef([20, 0]); // 
 
   // ── FIX: Long press refs ──
   // Track touch state precisely to distinguish a long-press from a scroll/pan.
@@ -2050,6 +2068,15 @@ useEffect(() => {
       });
 
       setMapReady(true);
+
+        getIpCenter().then(center => {
+        if (!center) return;
+        homeCenterRef.current = center;
+        if (mapRef.current?.getZoom() === DEFAULT_ZOOM) {
+          mapRef.current.flyTo(center, DEFAULT_ZOOM, { duration: 1.2 });
+        }
+      });
+
     };
     init();
     return () => { if (mapRef.current) { try { mapRef.current.remove(); } catch {} mapRef.current = null; } window.__yearningMap = null; };
@@ -2145,7 +2172,7 @@ useEffect(() => {
     showToast(`${arr.length} memories imported ✦`);
   };
   const handleExported = () => { const t = Date.now(); setLastBackupAt(t); setLastBackupAtState(t); setShowBackupNudge(false); };
-  const resetView = () => { haptic("light"); mapRef.current?.flyTo(DEFAULT_CENTER, DEFAULT_ZOOM, { duration: 1.4 }); setSelectedPinId(null); setMode("idle"); };
+  const resetView = () => { haptic("light"); mapRef.current?.flyTo(homeCenterRef.current, DEFAULT_ZOOM, { duration: 1.4 }); setSelectedPinId(null); setMode("idle"); };
   const randomMemory = () => {
     const pool = filteredPins.length > 0 ? filteredPins : [];
     if (pool.length === 0) {
