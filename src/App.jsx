@@ -2130,26 +2130,43 @@ useEffect(() => {
   }, [userLatLng, mapReady]);
 
   /* ─── Actions ───────────────────────────────────────────────────────── */
-  const locate = useCallback(() => {
+  const locate = useCallback(async () => {
   if (!("geolocation" in navigator)) { showToast("location not supported on this device"); return; }
   haptic("medium"); setLocationStatus("locating");
+
+  try {
+    if (navigator.permissions) {
+      const perm = await navigator.permissions.query({ name: "geolocation" });
+      if (perm.state === "denied") {
+        setLocationStatus("idle");
+        showToast("location blocked — please enable it in your browser settings", 3500);
+        return;
+      }
+    }
+  } catch {}
+
   navigator.geolocation.getCurrentPosition(
     ({ coords: { latitude, longitude } }) => {
-      setUserLatLng({ lat: latitude, lng: longitude }); setLocationStatus("found");
+      setUserLatLng({ lat: latitude, lng: longitude });
+      setLocationStatus("found");
       mapRef.current?.flyTo([latitude, longitude], 14, { duration: 1.6 });
       setFoundPopup({ lat: latitude, lng: longitude });
       setTimeout(() => setFoundPopup(null), 2400);
     },
     (err) => {
       setLocationStatus("idle");
-      // code 1 = permission denied/dismissed — stay silent, next tap will re-prompt
-      // code 2 = position unavailable, code 3 = timeout
-      if (err.code !== 1) showToast("could not access your location");
+      if (err.code === 1) {
+        showToast("tap allow when your browser asks for location ✦", 3000);
+      } else if (err.code === 2) {
+        showToast("could not determine your position", 3000);
+      } else {
+        showToast("location timed out — try again", 3000);
+      }
     },
-    { enableHighAccuracy: true, timeout: 10000 }
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
   );
 }, [showToast]);
-
+  
   const tryAnniversary = useCallback((lat, lng) => {
     const week = 7 * 86400000, now = Date.now();
     const near = pins.filter(p => p.createdAt && (now - p.createdAt) > week).map(p => ({ p, d: distanceM(lat, lng, p.lat, p.lng) })).filter(x => x.d <= ANNIV_RADIUS_M).sort((a, b) => a.d - b.d);
