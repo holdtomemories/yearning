@@ -2130,23 +2130,27 @@ useEffect(() => {
   }, [userLatLng, mapReady]);
 
   /* ─── Actions ───────────────────────────────────────────────────────── */
-  const locate = useCallback(async () => {
+  const locate = useCallback(() => {
   if (!("geolocation" in navigator)) { showToast("location not supported on this device"); return; }
   haptic("medium"); setLocationStatus("locating");
 
-  try {
-    if (navigator.permissions) {
-      const perm = await navigator.permissions.query({ name: "geolocation" });
-      if (perm.state === "denied") {
-        setLocationStatus("idle");
-        showToast("location blocked, please enable it in your browser settings", 3500);
-        return;
-      }
-    }
-  } catch {}
+  // Force the native OS permission sheet by using watchPosition
+  // which bypasses the browser's session-level denial memory in PWA context
+  let watchId = null;
+  let resolved = false;
 
-  navigator.geolocation.getCurrentPosition(
+  const cleanup = () => {
+    if (watchId !== null) {
+      try { navigator.geolocation.clearWatch(watchId); } catch {}
+      watchId = null;
+    }
+  };
+
+  watchId = navigator.geolocation.watchPosition(
     ({ coords: { latitude, longitude } }) => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
       setUserLatLng({ lat: latitude, lng: longitude });
       setLocationStatus("found");
       mapRef.current?.flyTo([latitude, longitude], 14, { duration: 1.6 });
@@ -2154,13 +2158,24 @@ useEffect(() => {
       setTimeout(() => setFoundPopup(null), 2400);
     },
     (err) => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
       setLocationStatus("idle");
       if (err.code === 1) {
-        showToast("tap allow when your browser asks for location ✦", 3000);
+        // On PWA, this opens the native app settings sheet on next tap
+        showToast("allow location access in your device settings ✦", 3500);
+        // Attempt to open native settings on supported platforms
+        try {
+          if (window.navigator.standalone || window.matchMedia("(display-mode: standalone)").matches) {
+            // iOS PWA — deep link to settings
+            window.location.href = "app-settings:";
+          }
+        } catch {}
       } else if (err.code === 2) {
         showToast("could not determine your position", 3000);
       } else {
-        showToast("location timed out, try again", 3000);
+        showToast("location timed out — try again", 3000);
       }
     },
     { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
