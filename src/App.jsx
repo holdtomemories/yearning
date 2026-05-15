@@ -2132,14 +2132,36 @@ useEffect(() => {
   /* ─── Actions ───────────────────────────────────────────────────────── */
   const locate = useCallback(() => {
   if (!("geolocation" in navigator)) { showToast("location not supported on this device"); return; }
-  haptic("medium"); setLocationStatus("locating");
-  navigator.geolocation.getCurrentPosition(({ coords: { latitude, longitude } }) => {
-    setUserLatLng({ lat: latitude, lng: longitude }); setLocationStatus("found");
-    mapRef.current?.flyTo([latitude, longitude], 14, { duration: 1.6 });
-    setFoundPopup({ lat: latitude, lng: longitude });
-    setTimeout(() => setFoundPopup(null), 2400);
-  }, () => { setLocationStatus("idle"); showToast("could not access your location"); }, { enableHighAccuracy: true, timeout: 10000 });
-  }, [showToast]);
+
+  const doLocate = () => {
+    haptic("medium"); setLocationStatus("locating");
+    navigator.geolocation.getCurrentPosition(
+      ({ coords: { latitude, longitude } }) => {
+        setUserLatLng({ lat: latitude, lng: longitude }); setLocationStatus("found");
+        mapRef.current?.flyTo([latitude, longitude], 14, { duration: 1.6 });
+        setFoundPopup({ lat: latitude, lng: longitude });
+        setTimeout(() => setFoundPopup(null), 2400);
+      },
+      () => { setLocationStatus("idle"); showToast("could not access your location"); },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  if (navigator.permissions) {
+    navigator.permissions.query({ name: "geolocation" }).then(result => {
+      if (result.state === "denied") {
+        setLocationStatus("idle");
+        showToast("location blocked — enable it in your browser settings", 3500);
+      } else {
+        // "granted" or "prompt" — call directly, browser will show the prompt
+        doLocate();
+      }
+    }).catch(() => doLocate());
+  } else {
+    doLocate();
+  }
+}, [showToast]);
+    
 
   const tryAnniversary = useCallback((lat, lng) => {
     const week = 7 * 86400000, now = Date.now();
