@@ -416,7 +416,7 @@ function Modal({ onClose, isDark, accentColor, zIndex = 200, width = 480, anim, 
 
 function CloseBtn({ onClose, isDark }) {
   return (
-    <button onClick={() => { haptic("light"); onClose(); }}
+    <button onClick={() => { haptic("medium"); onClose(); }}
       style={{ position: "absolute", top: 14, right: 16, background: "transparent", border: "none", color: isDark ? "rgba(232,228,217,0.62)" : "rgba(10,9,8,0.7)", cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 4 }}
       aria-label="Close">×</button>
   );
@@ -448,7 +448,7 @@ function InfoBox({ isDark, color, children, style = {} }) {
 function ToolBtn({ id, title, onClick, style, children, className = "" }) {
   return (
     <button id={id} className={`yr-tool-btn ${className}`} title={title} aria-label={title} style={style}
-      onClick={() => { haptic("light"); onClick?.(); }}>
+      onClick={() => { haptic("medium"); onClick?.(); }}>
       {children}
     </button>
   );
@@ -595,7 +595,7 @@ function WritingModal({ coords, existingPin, onSave, onCancel, isDark, anniversa
         <ModalLabel isDark={isDark}>mood</ModalLabel>
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: draft.mood === "other" ? 10 : 18 }}>
           {T.moods.map(m => (
-            <button key={m.key} className="yr-mood-chip" onClick={() => { haptic("light"); d("mood", m.key); }}
+            <button key={m.key} className="yr-mood-chip" onClick={() => { haptic("medium"); d("mood", m.key); }}
               style={{ background: draft.mood === m.key ? `${m.color}22` : "transparent", borderColor: draft.mood === m.key ? m.color : T.panelBorder, color: draft.mood === m.key ? m.color : T.textSec, fontWeight: draft.mood === m.key ? 700 : 500, boxShadow: draft.mood === m.key ? `0 0 12px ${m.color}50` : "none" }}>
               {m.label}
             </button>
@@ -610,7 +610,7 @@ function WritingModal({ coords, existingPin, onSave, onCancel, isDark, anniversa
         <textarea rows={5} placeholder="What do you want to remember about this place?" value={draft.body} onChange={e => d("body", e.target.value)}
           style={{ width: "100%", background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)", border: `1px solid ${T.panelBorder}`, borderRadius: 6, padding: 12, marginBottom: 20, color: T.textPrimary, fontFamily: "'Lora',serif", lineHeight: 1.85, fontStyle: "italic", outline: "none", letterSpacing: "0.02em" }} />
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button onClick={() => { haptic("light"); onCancel(); }} style={{ background: "transparent", border: `1px solid ${T.panelBorder}`, color: T.textSec, padding: "10px 20px", borderRadius: 6, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.1em", minHeight: 52, fontWeight: 500 }}>{isEdit ? "cancel" : "discard"}</button>
+          <button onClick={() => { haptic("medium"); onCancel(); }} style={{ background: "transparent", border: `1px solid ${T.panelBorder}`, color: T.textSec, padding: "10px 20px", borderRadius: 6, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.1em", minHeight: 52, fontWeight: 500 }}>{isEdit ? "cancel" : "discard"}</button>
           <button onClick={handleSave} disabled={!valid} style={{ background: valid ? `${mood.color}28` : "transparent", border: `1px solid ${valid ? mood.color : T.panelBorder}`, color: valid ? mood.color : T.textFaint, padding: "10px 24px", borderRadius: 6, cursor: valid ? "pointer" : "not-allowed", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.12em", minHeight: 52, fontWeight: 700 }}>{isEdit ? "save changes ✦" : "plant it ✦"}</button>
         </div>
       </div>
@@ -695,7 +695,7 @@ function ExportImportModal({ pins, onImport, onClose, onExported, isDark, lastBa
       <ModalLabel isDark={isDark}>memories</ModalLabel>
       <ModalTitle isDark={isDark}>export &amp; import</ModalTitle>
       <div style={{ display: "flex", gap: 0, marginBottom: 20, border: `1px solid ${T.panelBorder}`, borderRadius: 6, overflow: "hidden" }}>
-        {["export", "import"].map(t => <button key={t} onClick={() => { haptic("light"); setTab(t); setImportError(""); }} style={tabBtnStyle(t)}>{t}</button>)}
+        {["export", "import"].map(t => <button key={t} onClick={() => { haptic("medium"); setTab(t); setImportError(""); }} style={tabBtnStyle(t)}>{t}</button>)}
       </div>
       <InfoBox isDark={isDark} color={isDark ? "#22d3ee" : "#0e7490"}>Your memories are stored on this device and survive every app update — but exporting a backup is always a good idea.</InfoBox>
 
@@ -779,7 +779,7 @@ function MemorySearchModal({ pins, onSelect, onClose, isDark }) {
         {query ? `${results.length} found` : `your last ${Math.min(30, results.length)} memories`}
       </div>
       <div style={{ flex: 1, overflowY: "auto", marginRight: -8, paddingRight: 8 }}>
-        {results.length === 0 && query && <div style={{ fontFamily: "'Lora',serif", fontSize: 13.5, color: T.textMuted, fontStyle: "italic", padding: "20px 0", textAlign: "center" }}>nothing matches that — yet.</div>}
+        {results.length === 0 && query && <div style={{ fontFamily: "'Lora',serif", fontSize: 13.5, color: T.textMuted, fontStyle: "italic", padding: "20px 0", textAlign: "center" }}>nothing matches that, yet.</div>}
         {results.map(p => {
           const mc = p.moodColor || getMoodByKey(p.mood, isDark).color;
           const place = [p.city, p.country].filter(Boolean).join(", ");
@@ -900,14 +900,14 @@ function HelpModal({ onClose, isDark, onEnableNotifications, notifPermission, on
     { icon: "◎", col: cyan, label: "Locate Me", desc: "Flies to your GPS position and shows a live pulse marker." },
     { icon: "✦", col: purple, label: "Plant Here", desc: "Plants a pin at your GPS location, or at the map center if unavailable." },
     { icon: "+", col: T.textPrimary, label: "Tap Anywhere", desc: "Enter placing mode — tap any spot, or long-press for an instant plant." },
-    { icon: "⌕", col: purple, label: "Search Memories", desc: "Full-text search through every memory you've planted — title, body, mood, place." },
+    { icon: "⌕", col: purple, label: "Search Memories", desc: "Full-text search through every memory you've planted, title, body, mood, place." },
     { icon: "⌘", col: T.textSec, label: "Heatmap", desc: "Toggle a soft density view that shows where you think the most." },
     { icon: "⌂", col: T.textSec, label: "Reset View", desc: "Flies back to the world view at default zoom." },
     { icon: "↝", col: T.textSec, label: "Random Memory", desc: "Jumps to a random memory you've planted." },
     { icon: "◑", col: gold, label: "Light / Dark", desc: "Toggle between dark and light map themes. Your choice persists across sessions." },
     { icon: "⬇", col: T.textSec, label: "Export / Import", desc: "Back up your memories to a file, or restore from a previous export." },
     { icon: "☕", col: gold, label: "Support", desc: "Keep Yearning free with a small tip." },
-    { icon: "i", col: cyan, label: "Help Center", desc: "This panel — your guide lives here permanently.", italic: true },
+    { icon: "i", col: cyan, label: "Help Center", desc: "This panel, your guide lives here permanently.", italic: true },
   ];
   const notifStates = { granted: { bg: isDark ? "rgba(22,163,74,0.16)" : "rgba(22,163,74,0.1)", border: isDark ? "rgba(134,239,172,0.5)" : "rgba(22,163,74,0.5)", color: green, label: "✓ notifications enabled" }, denied: { bg: "transparent", border: T.panelBorder, color: T.textFaint, label: "notifications blocked in browser" }, default: { bg: `${cyan}22`, border: cyan, color: cyan, label: "✦ enable location reminders" } };
   const ns = notifStates[notifPermission] || notifStates.default;
@@ -1042,13 +1042,13 @@ function OnThisDayNudge({ pin, isDark, onView, onDismiss }) {
       <button onClick={onDismiss} style={{ position: "absolute", top: 6, right: 10, background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4, minWidth: 52, minHeight: 52, display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="Dismiss">×</button>
       <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: mc, letterSpacing: "0.28em", textTransform: "uppercase", fontWeight: 700, marginBottom: 4 }}>on this day</div>
       <div style={{ fontFamily: "'Playfair Display',serif", fontStyle: "italic", fontSize: 15, color: T.textPrimary, fontWeight: 500, lineHeight: 1.4, marginBottom: 8, paddingRight: 20 }}>{yearLabel}, you wrote here…</div>
-      <button onClick={onView} style={{ width: "100%", background: "transparent", border: "none", textAlign: "left", cursor: "pointer", padding: 0 }}>
+      <button onClick={() => { haptic("medium"); playSound("chime"); onView(); }} style={{ width: "100%", background: "transparent", border: "none", textAlign: "left", cursor: "pointer", padding: 0 }}>
         <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 14, color: T.textPrimary, fontWeight: 500, marginBottom: 3 }}>{pin.title}</div>
         <div style={{ fontFamily: "'Lora',serif", fontSize: 12, color: T.textSec, fontStyle: "italic", lineHeight: 1.55, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{pin.body}</div>
         <div style={{ marginTop: 6, fontFamily: "'Lora',serif", fontSize: 11, color: mc, letterSpacing: "0.14em", fontWeight: 700 }}>revisit →</div>
       </button>
     </div>
-  );
+  )
 }
 
 function WelcomeModal({ onContinue, onSkip, isDark }) {
@@ -1151,7 +1151,7 @@ function WelcomeModal({ onContinue, onSkip, isDark }) {
           display: "flex", gap: 10, justifyContent: "space-between",
           alignItems: "center", flexWrap: "wrap", marginTop: 22,
         }}>
-          <button onClick={() => { haptic("light"); onSkip(); }} style={{
+          <button onClick={() => { haptic("medium"); onSkip(); }} style={{
             background: "transparent", border: `1px solid ${T.panelBorder}`,
             color: T.textMuted, fontFamily: "'Lora',serif", fontSize: 12,
             letterSpacing: "0.16em", cursor: "pointer",
@@ -1337,7 +1337,7 @@ function IntroSequence({ onComplete, onSkip, isDark }) {
           display: "flex", gap: 10,
           justifyContent: "space-between", alignItems: "center",
         }}>
-          <button onClick={() => { haptic("light"); onSkip(); }} style={{
+          <button onClick={() => { haptic("medium"); onSkip(); }} style={{
             background: "transparent", border: "none",
             color: T.textMuted, fontFamily: "'Lora',serif",
             fontSize: 11.5, letterSpacing: "0.14em", cursor: "pointer",
@@ -1345,7 +1345,7 @@ function IntroSequence({ onComplete, onSkip, isDark }) {
           }}>skip</button>
           <div style={{ display: "flex", gap: 8 }}>
             {page > 0 && (
-              <button onClick={() => { haptic("light"); setPage(p => Math.max(0, p - 1)); }} style={{
+              <button onClick={() => { haptic("medium"); setPage(p => Math.max(0, p - 1)); }} style={{
                 background: "transparent", border: `1px solid ${T.panelBorder}`,
                 color: T.textSec, fontFamily: "'Lora',serif", fontSize: 12,
                 letterSpacing: "0.14em", cursor: "pointer",
@@ -1354,7 +1354,7 @@ function IntroSequence({ onComplete, onSkip, isDark }) {
               }}>← back</button>
             )}
             <button onClick={() => {
-              haptic("light");
+              haptic("medium");
               if (isLast) onComplete(); else setPage(p => p + 1);
             }} style={{
               background: `${current.color}22`, border: `1px solid ${current.color}`,
@@ -1506,7 +1506,7 @@ function TourOverlay({ step, total, onNext, onPrev, onSkip, isDark }) {
           display: "flex", gap: 8,
           justifyContent: "space-between", alignItems: "center",
         }}>
-          <button onClick={() => { haptic("light"); onSkip(); }} style={{
+          <button onClick={() => { haptic("medium"); onSkip(); }} style={{
             background: "transparent", border: "none",
             color: T.textMuted, fontFamily: "'Lora',serif",
             fontSize: 11.5, letterSpacing: "0.14em",
@@ -1515,7 +1515,7 @@ function TourOverlay({ step, total, onNext, onPrev, onSkip, isDark }) {
           }}>skip tour</button>
           <div style={{ display: "flex", gap: 6 }}>
             {step > 0 && (
-              <button onClick={() => { haptic("light"); onPrev(); }} style={{
+              <button onClick={() => { haptic("medium"); onPrev(); }} style={{
                 background: "transparent", border: `1px solid ${T.panelBorder}`,
                 color: T.textSec, fontFamily: "'Lora',serif", fontSize: 11.5,
                 letterSpacing: "0.14em", cursor: "pointer",
@@ -1694,7 +1694,7 @@ function ExpandableSearch({ isDark }) {
       {/* The trigger button — always 44×44, never grows */}
       <div id="search-expand-btn" ref={btnRef} style={{ position: "relative" }}>
         <button
-          onClick={() => { haptic("light"); setOpen(o => !o); }}
+          onClick={() => { haptic("medium"); setOpen(o => !o); }}
           style={{
             width: 54, height: 54, borderRadius: 12, background: open ? (isDark ? "rgba(192,132,252,0.15)" : "rgba(109,40,217,0.1)") : pillBg,
             backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
@@ -1958,7 +1958,7 @@ function MoodFilterTray({ isDark, activeMoodFilters, onToggle, onClear, dateBoun
   const anyActive = hasActive || dateActive;
 
   const handleOpen = () => {
-    haptic("light");
+    haptic("medium");
     if (btnRef.current) {
       const rect = btnRef.current.getBoundingClientRect();
       setTrayPos({
@@ -2115,7 +2115,7 @@ function OverflowMenu({ isDark, onLocate, locationStatus, onReset, onRandom, onT
     <>
       <button
         id="btn-menu"
-        onClick={() => { haptic("light"); setOpen(o => !o); }}
+        onClick={() => { haptic("medium"); setOpen(o => !o); }}
         style={{
           width: 54, height: 54, borderRadius: 12, cursor: "pointer",
           background: open ? `${accent}22` : T.toolBg,
@@ -2153,7 +2153,7 @@ function OverflowMenu({ isDark, onLocate, locationStatus, onReset, onRandom, onT
               return (
                 <button
                   key={label} id={id}
-                  onClick={() => { haptic("light"); action(); close(); }}
+                  onClick={() => { haptic("medium"); action(); close(); }}
                   style={{
                     width: "100%", display: "flex", alignItems: "center", gap: 12,
                     background: active ? `${accent}12` : "transparent",
@@ -2219,7 +2219,7 @@ function PinCard({ pin, mapInstance, isDark, onClose, onForget, onEdit, onShare 
             <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: mc, letterSpacing: "0.24em", textTransform: "uppercase", marginBottom: 5, fontWeight: 700 }}>{moodLabel} · {pin.date}</div>
             <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 17, fontWeight: 500, color: T.textPrimary, lineHeight: 1.3 }}>{pin.title}</div>
           </div>
-          <button onClick={() => { haptic("light"); onClose(); }} style={{ background: "transparent", border: "none", color: T.textSec, cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 0, flexShrink: 0, minWidth: 52, minHeight: 52, display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="Close">×</button>
+          <button onClick={() => { haptic("medium"); onClose(); }} style={{ background: "transparent", border: "none", color: T.textSec, cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 0, flexShrink: 0, minWidth: 52, minHeight: 52, display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="Close">×</button>
         </div>
         <div style={{ fontFamily: "'Lora',serif", fontSize: 14, color: T.textSec, lineHeight: 1.85, fontStyle: "italic" }}>{pin.body}</div>
         {pin.editedAt && <div style={{ marginTop: 8, fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, fontStyle: "italic", letterSpacing: "0.04em" }}>edited {new Date(pin.editedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>}
@@ -2228,8 +2228,8 @@ function PinCard({ pin, mapInstance, isDark, onClose, onForget, onEdit, onShare 
           <div style={{ fontFamily: "'Lora',serif", fontSize: 10, color: T.textMuted, letterSpacing: "0.06em", fontWeight: 500, marginBottom: 10 }}>{pin.lat.toFixed(4)}, {pin.lng.toFixed(4)}</div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
             <div style={{ display: "flex", gap: 12 }}>
-              {editable && <button onClick={() => { haptic("light"); onEdit(pin); }} style={{ background: "transparent", border: "none", color: isDark ? "#c084fc" : "#6d28d9", cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.1em", padding: "6px 0", minHeight: 52, fontWeight: 700 }}>✎ edit</button>}
-              <button onClick={() => { haptic("light"); onShare(pin); }} style={{ background: "transparent", border: "none", color: T.textPrimary, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.1em", padding: "6px 0", minHeight: 52, fontWeight: 600 }}>↗ share</button>
+              {editable && <button onClick={() => { haptic("medium"); onEdit(pin); }} style={{ background: "transparent", border: "none", color: isDark ? "#c084fc" : "#6d28d9", cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.1em", padding: "6px 0", minHeight: 52, fontWeight: 700 }}>✎ edit</button>}
+              <button onClick={() => { haptic("medium"); onShare(pin); }} style={{ background: "transparent", border: "none", color: T.textPrimary, cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.1em", padding: "6px 0", minHeight: 52, fontWeight: 600 }}>↗ share</button>
             </div>
             <button onClick={() => { haptic("medium"); onForget(pin.id); }} style={{ background: "transparent", border: "none", color: isDark ? "rgba(252,165,165,0.75)" : "rgba(185,28,28,0.85)", cursor: "pointer", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.1em", padding: "6px 0", minHeight: 52, fontWeight: 600 }}>forget this</button>
           </div>
@@ -2630,7 +2630,7 @@ useEffect(() => {
       const html = `<div style="position:relative;width:${w}px;height:${h}px;transform:translateY(-${h/2 - w/2}px)"><svg width="${w}" height="${h}" viewBox="0 0 24 32" style="position:absolute;inset:0;filter:drop-shadow(0 0 ${sel ? 12 : 7}px ${mc}dd) drop-shadow(0 0 ${sel ? 22 : 14}px ${mc}88) drop-shadow(0 2px 4px rgba(0,0,0,0.5));transition:all 0.2s" xmlns="http://www.w3.org/2000/svg"><path d="M12 1 C6 1 1.5 5.5 1.5 11 C1.5 15.5 5 20.5 9 25.5 C10.2 27.1 11.1 28.6 12 30.5 C12.9 28.6 13.8 27.1 15 25.5 C19 20.5 22.5 15.5 22.5 11 C22.5 5.5 18 1 12 1 Z" fill="${mc}" stroke="none"/></svg>${sel ? `<div style="position:absolute;left:50%;bottom:-3px;transform:translateX(-50%);width:${w*.9}px;height:${w*.9}px;border-radius:50%;border:1.5px solid ${mc}88;animation:pulseRing 1.4s ease-out infinite"></div>` : ""}</div>`;
       const icon = L.divIcon({ html, className: "yr-pin-icon", iconSize: [w, h], iconAnchor: [w/2, h - w/2] });
       const marker = L.marker([p.lat, p.lng], { icon, riseOnHover: true });
-      marker.on("click", e => { L.DomEvent.stopPropagation(e); haptic("light"); setSelectedPinId(p.id); setMode("idle"); });
+      marker.on("click", e => { L.DomEvent.stopPropagation(e); haptic("medium"); setSelectedPinId(p.id); setMode("idle"); });
       marker.addTo(map); markersRef.current.push(marker);
     });
   }, [filteredPins, selectedPinId, mapReady, isDark, showHeatmap]);
@@ -2730,14 +2730,15 @@ useEffect(() => {
     showToast(`${arr.length} memories imported ✦`);
   };
   const handleExported = () => { const t = Date.now(); setLastBackupAt(t); setLastBackupAtState(t); setShowBackupNudge(false); };
-  const resetView = () => { haptic("light"); mapRef.current?.flyTo(homeCenterRef.current, DEFAULT_ZOOM, { duration: 1.4 }); setSelectedPinId(null); setMode("idle"); };
+  const resetView = () => { haptic("medium"); mapRef.current?.flyTo(homeCenterRef.current, DEFAULT_ZOOM, { duration: 1.4 }); setSelectedPinId(null); setMode("idle"); };
   const randomMemory = () => {
     const pool = filteredPins.length > 0 ? filteredPins : [];
     if (pool.length === 0) {
       showToast(pins.length === 0 ? "plant a memory first ✦" : "no memories match the current filters ✦");
       return;
     }
-    haptic("medium");
+    haptic("heavy");
+    playSound("chime");
     const p = pool[Math.floor(Math.random() * pool.length)];
     mapRef.current?.flyTo([p.lat, p.lng], 13, { duration: 1.8 });
     setSelectedPinId(p.id);
@@ -2763,10 +2764,10 @@ const endOnboarding = () => {
   setOnboardPhase("idle");
 };
 
-  const enableNotifications = async () => { haptic("light"); const granted = await requestNotificationPermission(); setNotifPermission(granted ? "granted" : (Notification?.permission || "denied")); if (granted) showToast("location reminders enabled ✦"); };
+  const enableNotifications = async () => { haptic("medium"); const granted = await requestNotificationPermission(); setNotifPermission(granted ? "granted" : (Notification?.permission || "denied")); if (granted) showToast("location reminders enabled ✦"); };
   const dismissWhatsNew = () => { setLastSeenVersion(APP_VERSION); setShowWhatsNew(false); setWhatsNewIsFirstAck(false); };
   const applyUpdate = () => { haptic("medium"); try { window.__yearningWaitingWorker?.postMessage({ type: "SKIP_WAITING" }); } catch {} setTimeout(() => window.location.reload(), 600); };
-  const toggleMoodFilter = (key) => { haptic("light"); setActiveMoodFilters(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; }); };
+  const toggleMoodFilter = (key) => { haptic("medium"); setActiveMoodFilters(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; }); };
 
   const selectedPin = useMemo(() => pins.find(p => p.id === selectedPinId), [pins, selectedPinId]);
   const showPinCard = selectedPin && !editingPin && !sharingPin && !forgetTargetId;
@@ -2809,8 +2810,8 @@ const endOnboarding = () => {
       {mapReady && (
        <div style={{ position: "fixed", left: 14, top: "50%", transform: "translateY(-50%)", zIndex: 115, display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-    <button aria-label="Zoom in" onClick={() => { haptic("light"); mapRef.current?.zoomIn(); }} style={{ ...zoomBtnStyle, fontSize: 22, fontWeight: 500 }}>+</button>
-    <button aria-label="Zoom out" onClick={() => { haptic("light"); mapRef.current?.zoomOut(); }} style={{ ...zoomBtnStyle, fontSize: 24, fontWeight: 500 }}>−</button>
+    <button aria-label="Zoom in" onClick={() => { haptic("medium"); mapRef.current?.zoomIn(); }} style={{ ...zoomBtnStyle, fontSize: 22, fontWeight: 500 }}>+</button>
+    <button aria-label="Zoom out" onClick={() => { haptic("medium"); mapRef.current?.zoomOut(); }} style={{ ...zoomBtnStyle, fontSize: 24, fontWeight: 500 }}>−</button>
   </div>
   <ExpandableSearch isDark={isDark} />
   <MoodFilterTray
@@ -2843,7 +2844,7 @@ const endOnboarding = () => {
             locationStatus={locationStatus}
             onReset={resetView}
             onRandom={randomMemory}
-            onToggleHeatmap={() => { haptic("light"); setShowHeatmap(s => !s); }}
+            onToggleHeatmap={() => { haptic("medium"); setShowHeatmap(s => !s); }}
             showHeatmap={showHeatmap}
             onToggleTheme={() => setIsDark(d => !d)}
             onExportImport={() => setShowExportImport(true)}
@@ -2875,7 +2876,6 @@ const endOnboarding = () => {
       {showUpdateBanner && !showWhatsNew && !showBackupNudge && !onThisDayPin && <UpdateBanner isDark={isDark} onApply={applyUpdate} onDismiss={() => setShowUpdateBanner(false)} />}
       {showBackupNudge && !showWhatsNew && !onThisDayPin && <BackupNudge isDark={isDark} daysAgo={lastBackupAt ? daysBetween(lastBackupAt, Date.now()) : Math.min(99, daysBetween(getFirstRunAt(), Date.now()))} onExport={() => { setShowBackupNudge(false); setShowExportImport(true); }} onDismiss={() => { setShowBackupNudge(false); setLastBackupAt(Date.now() - (BACKUP_NUDGE_DAYS - 3) * 86400000); }} />}
       {onThisDayPin && !showWhatsNew && <OnThisDayNudge pin={onThisDayPin} isDark={isDark} onView={() => { const p = onThisDayPin; setOnThisDayPin(null); setAnnivDismissed(); setSelectedPinId(p.id); mapRef.current?.flyTo([p.lat, p.lng], 14, { duration: 1.8 }); }} onDismiss={() => { setOnThisDayPin(null); setAnnivDismissed(); }} />}
-
           {onboardPhase === "welcome" && (
       <WelcomeModal
         isDark={isDark}
@@ -2914,9 +2914,10 @@ const endOnboarding = () => {
       />
     )}
 
-      {showFirstNudge && !showWhatsNew && pins.length === 0 && <FirstPlantNudge isDark={isDark} hasLocation={!!userLatLng} onPlantHere={() => { setShowFirstNudge(false); plantHere(); }} onPlantWhere={() => { setShowFirstNudge(false); setMode("placing"); showToast("tap anywhere on the map ✦", 3000); }} onDismiss={() => setShowFirstNudge(false)} />}
+      {showFirstNudge && !showWhatsNew && pins.length === 0 && <FirstPlantNudge isDark={isDark} hasLocation={!!userLatLng} onPlantHere={() => { setShowFirstNudge(false); plantHere(); }} onPlantWhere={() => { setShowFirstNudge(false); setMode("placing"); showToast("long press anywhere on the map ✦", 3000); }} onDismiss={() => setShowFirstNudge(false)} />}
 
-      {placingActive && <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", pointerEvents: "none", zIndex: 90, textAlign: "center", fontFamily: "'Playfair Display',serif", fontStyle: "italic", fontSize: 17, color: isDark ? "rgba(255,255,255,0.5)" : "rgba(10,9,8,0.5)", letterSpacing: "0.08em", animation: "fadeIn 0.3s ease", textShadow: isDark ? "0 2px 12px rgba(0,0,0,0.8)" : "0 2px 12px rgba(255,255,255,0.7)" }}>tap anywhere to plant a thought</div>}
+      {placingActive && <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", pointerEvents: "none", zIndex: 90, textAlign: "center", fontFamily: "'Playfair Display',serif", fontStyle: "italic", fontSize: 17, color: isDark ? "rgba(255,255,255,0.5)" : "rgba(10,9,8,0.5)", letterSpacing: "0.08em", animation: "fadeIn 0.3s ease", textShadow: isDark ? "0 2px 12px rgba(0,0,0,0.8)" : "0 2px 12px rgba(255,255,255,0.7)" }
+      }> your first memory starts here, long press anywhere on the map ✦</div>}
 
       <Toast msg={toast} isDark={isDark} />
       <SpeedInsights />
