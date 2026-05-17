@@ -233,6 +233,108 @@ function playSound(type = "plant") {
       plant: () => { osc.type = "sine"; osc.frequency.setValueAtTime(523, t); osc.frequency.exponentialRampToValueAtTime(880, t + 0.18); gain.gain.setValueAtTime(0.18, t); gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4); osc.start(t); osc.stop(t + 0.4); },
       forget: () => { osc.type = "sine"; osc.frequency.setValueAtTime(440, t); osc.frequency.exponentialRampToValueAtTime(220, t + 0.35); gain.gain.setValueAtTime(0.14, t); gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5); osc.start(t); osc.stop(t + 0.5); },
       chime: () => { osc.type = "sine"; osc.frequency.setValueAtTime(660, t); osc.frequency.exponentialRampToValueAtTime(990, t + 0.12); gain.gain.setValueAtTime(0.10, t); gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3); osc.start(t); osc.stop(t + 0.3); },
+      zoomin: () => {
+        const osc2 = ctx.createOscillator(), gain2 = ctx.createGain();
+        const osc3 = ctx.createOscillator(), gain3 = ctx.createGain();
+        osc2.connect(gain2); gain2.connect(ctx.destination);
+        osc3.connect(gain3); gain3.connect(ctx.destination);
+        // Root — A4, soft sine, fades quickly
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(440, t);
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.05, t + 0.08);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+        osc.start(t); osc.stop(t + 0.45);
+        // Fifth — E5, triangle, follows gently
+        osc2.type = "triangle";
+        osc2.frequency.setValueAtTime(659.25, t + 0.1);
+        gain2.gain.setValueAtTime(0, t + 0.1);
+        gain2.gain.linearRampToValueAtTime(0.038, t + 0.2);
+        gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.52);
+        osc2.start(t + 0.1); osc2.stop(t + 0.52);
+        // Sparkle — A5, sine, lands softly like arriving
+        osc3.type = "sine";
+        osc3.frequency.setValueAtTime(880, t + 0.22);
+        gain3.gain.setValueAtTime(0, t + 0.22);
+        gain3.gain.linearRampToValueAtTime(0.025, t + 0.3);
+        gain3.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+        osc3.start(t + 0.22); osc3.stop(t + 0.6);
+      },
+      swoosh: () => {
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(320, t);
+        osc.frequency.exponentialRampToValueAtTime(180, t + 0.18);
+        osc.frequency.exponentialRampToValueAtTime(220, t + 0.38);
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.09, t + 0.06);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+        osc.start(t); osc.stop(t + 0.45);
+      },
+      onboard: () => {
+        // Warm, rising two-note chime — like a gentle affirmation bell
+        const osc2 = ctx.createOscillator(), gain2 = ctx.createGain();
+        osc2.connect(gain2); gain2.connect(ctx.destination);
+        // First note — warm root
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(523.25, t);       // C5
+        osc.frequency.setValueAtTime(523.25, t + 0.01);
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.13, t + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+        osc.start(t); osc.stop(t + 0.55);
+        // Second note — bright fifth, delayed slightly for a cascade feel
+        osc2.type = "sine";
+        osc2.frequency.setValueAtTime(783.99, t + 0.12); // G5
+        osc2.frequency.exponentialRampToValueAtTime(880, t + 0.32); // A5 — lift
+        gain2.gain.setValueAtTime(0, t + 0.12);
+        gain2.gain.linearRampToValueAtTime(0.11, t + 0.18);
+        gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.65);
+        osc2.start(t + 0.12); osc2.stop(t + 0.65);
+      },
+      onboard_back: () => {
+        // Soft descending tone — gentle, not punishing
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(659.25, t);       // E5
+        osc.frequency.exponentialRampToValueAtTime(523.25, t + 0.28); // C5
+        gain.gain.setValueAtTime(0.10, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+        osc.start(t); osc.stop(t + 0.4);
+      },
+      onboard_skip: () => {
+        // Single quiet fade — respectful, no drama
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(440, t);          // A4
+        osc.frequency.exponentialRampToValueAtTime(392, t + 0.2); // G4
+        gain.gain.setValueAtTime(0.07, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+        osc.start(t); osc.stop(t + 0.35);
+      },
+      onboard_begin: () => {
+        // Three-note ascending bloom — celebratory, warm, emotional
+        const osc2 = ctx.createOscillator(), gain2 = ctx.createGain();
+        const osc3 = ctx.createOscillator(), gain3 = ctx.createGain();
+        osc2.connect(gain2); gain2.connect(ctx.destination);
+        osc3.connect(gain3); gain3.connect(ctx.destination);
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(523.25, t);       // C5
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.13, t + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+        osc.start(t); osc.stop(t + 0.5);
+        osc2.type = "sine";
+        osc2.frequency.setValueAtTime(659.25, t + 0.13); // E5
+        gain2.gain.setValueAtTime(0, t + 0.13);
+        gain2.gain.linearRampToValueAtTime(0.11, t + 0.18);
+        gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+        osc2.start(t + 0.13); osc2.stop(t + 0.6);
+        osc3.type = "sine";
+        osc3.frequency.setValueAtTime(783.99, t + 0.26); // G5
+        osc3.frequency.exponentialRampToValueAtTime(880, t + 0.45); // A5
+        gain3.gain.setValueAtTime(0, t + 0.26);
+        gain3.gain.linearRampToValueAtTime(0.10, t + 0.32);
+        gain3.gain.exponentialRampToValueAtTime(0.001, t + 0.75);
+        osc3.start(t + 0.26); osc3.stop(t + 0.75);
+      },
     };
     sounds[type]?.();
   } catch {}
@@ -1151,14 +1253,14 @@ function WelcomeModal({ onContinue, onSkip, isDark }) {
           display: "flex", gap: 10, justifyContent: "space-between",
           alignItems: "center", flexWrap: "wrap", marginTop: 22,
         }}>
-          <button onClick={() => { haptic("medium"); onSkip(); }} style={{
+        <button onClick={() => { haptic("medium"); playSound("onboard_skip"); onSkip(); }} style={{
             background: "transparent", border: `1px solid ${T.panelBorder}`,
             color: T.textMuted, fontFamily: "'Lora',serif", fontSize: 12,
             letterSpacing: "0.16em", cursor: "pointer",
             padding: "11px 20px", borderRadius: 6,
             minHeight: 52, fontWeight: 500,
           }}>skip intro</button>
-          <button onClick={() => { haptic("medium"); onContinue(); }} style={{
+        <button onClick={() => { haptic("medium"); playSound("onboard_begin"); onContinue(); }} style={{
             background: `${purple}22`, border: `1px solid ${purple}`,
             color: purpleSoft, fontFamily: "'Lora',serif", fontSize: 13,
             letterSpacing: "0.2em", padding: "12px 28px", borderRadius: 6,
@@ -1337,25 +1439,26 @@ function IntroSequence({ onComplete, onSkip, isDark }) {
           display: "flex", gap: 10,
           justifyContent: "space-between", alignItems: "center",
         }}>
-          <button onClick={() => { haptic("medium"); onSkip(); }} style={{
+         <button onClick={() => { haptic("medium"); playSound("onboard_skip"); onSkip(); }} style={{
             background: "transparent", border: "none",
             color: T.textMuted, fontFamily: "'Lora',serif",
-            fontSize: 11.5, letterSpacing: "0.14em", cursor: "pointer",
-            padding: "10px 12px", minHeight: 52, fontWeight: 500,
-          }}>skip</button>
+            fontSize: 11.5, letterSpacing: "0.14em",
+            cursor: "pointer", padding: 4, fontWeight: 500,
+            minHeight: 44, minWidth: 44,
+          }}>skip tour</button>
           <div style={{ display: "flex", gap: 8 }}>
             {page > 0 && (
-              <button onClick={() => { haptic("medium"); setPage(p => Math.max(0, p - 1)); }} style={{
+            <button onClick={() => { haptic("medium"); playSound("onboard_back"); onPrev(); }} style={{
                 background: "transparent", border: `1px solid ${T.panelBorder}`,
-                color: T.textSec, fontFamily: "'Lora',serif", fontSize: 12,
+                color: T.textSec, fontFamily: "'Lora',serif", fontSize: 11.5,
                 letterSpacing: "0.14em", cursor: "pointer",
-                padding: "10px 18px", borderRadius: 6,
-                minHeight: 52, fontWeight: 500,
+                padding: "8px 14px", borderRadius: 5,
+                minHeight: 44, fontWeight: 500,
               }}>← back</button>
             )}
             <button onClick={() => {
               haptic("medium");
-              if (isLast) onComplete(); else setPage(p => p + 1);
+              playSound(isLast ? "plant" : "chime"); if (isLast) onComplete(); else setPage(p => p + 1);
             }} style={{
               background: `${current.color}22`, border: `1px solid ${current.color}`,
               color: current.color, fontFamily: "'Lora',serif", fontSize: 12.5,
@@ -1374,7 +1477,6 @@ function TourOverlay({ step, total, onNext, onPrev, onSkip, isDark }) {
   const T = useTheme(isDark);
   const purple = isDark ? "#a855f7" : "#6d28d9";
   const purpleSoft = isDark ? "#c084fc" : "#6d28d9";
-
   const [rect, setRect] = useState(null);
   const [missing, setMissing] = useState(false);
   const tipRef = useRef(null);
@@ -1506,24 +1608,22 @@ function TourOverlay({ step, total, onNext, onPrev, onSkip, isDark }) {
           display: "flex", gap: 8,
           justifyContent: "space-between", alignItems: "center",
         }}>
-          <button onClick={() => { haptic("medium"); onSkip(); }} style={{
-            background: "transparent", border: "none",
-            color: T.textMuted, fontFamily: "'Lora',serif",
-            fontSize: 11.5, letterSpacing: "0.14em",
+         <button onClick={() => { haptic("medium"); playSound("forget"); onSkip(); }} style={{
+            background: "transparent", border: `1px solid ${T.panelBorder}`,
+            color: T.textMuted, fontFamily: "'Lora',serif", fontSize: 12, letterSpacing: "0.14em",
             cursor: "pointer", padding: 4, fontWeight: 500,
             minHeight: 44, minWidth: 44,
           }}>skip tour</button>
           <div style={{ display: "flex", gap: 6 }}>
             {step > 0 && (
-              <button onClick={() => { haptic("medium"); onPrev(); }} style={{
-                background: "transparent", border: `1px solid ${T.panelBorder}`,
+            <button onClick={() => { haptic("medium"); playSound("chime"); onPrev(); }} style={{                background: "transparent", border: `1px solid ${T.panelBorder}`,
                 color: T.textSec, fontFamily: "'Lora',serif", fontSize: 11.5,
                 letterSpacing: "0.14em", cursor: "pointer",
                 padding: "8px 14px", borderRadius: 5,
                 minHeight: 44, fontWeight: 500,
               }}>← back</button>
             )}
-            <button onClick={() => { haptic("medium"); onNext(); }} style={{
+              <button onClick={() => { haptic("medium"); playSound(isLast ? "onboard_begin" : "onboard"); onNext(); }} style={{
               background: `${purple}28`, border: `1px solid ${purple}`,
               color: purpleSoft, fontFamily: "'Lora',serif", fontSize: 11.5,
               letterSpacing: "0.18em", cursor: "pointer",
@@ -1610,8 +1710,7 @@ function TourComplete({ onBegin, isDark }) {
             border: `1px solid ${T.panelBorder}`,
           }}>i</span> any time.
         </div>
-
-        <button onClick={() => { haptic("medium"); onBegin(); }} style={{
+          <button onClick={() => { haptic("medium"); playSound("onboard_begin"); onBegin(); }} style={{
           background: `${purple}28`, border: `1px solid ${purple}`,
           color: purpleSoft, fontFamily: "'Lora',serif", fontSize: 13,
           letterSpacing: "0.2em", padding: "12px 32px",
@@ -1679,7 +1778,8 @@ function ExpandableSearch({ isDark }) {
   }, [query]);
 
   const flyTo = (r) => {
-    haptic("light");
+    haptic("medium");
+    playSound("zoomin");
     window.__yearningMap?.flyTo([parseFloat(r.lat), parseFloat(r.lon)], 12, { duration: 1.5 });
     setQuery(""); setResults([]); setOpen(false);
   };
@@ -2671,6 +2771,7 @@ useEffect(() => {
       setUserLatLng({ lat: latitude, lng: longitude });
       setLocationStatus("found");
       mapRef.current?.flyTo([latitude, longitude], 14, { duration: 1.6 });
+      playSound("zoomin");
       setFoundPopup({ lat: latitude, lng: longitude });
       setTimeout(() => setFoundPopup(null), 2400);
     },
@@ -2731,7 +2832,7 @@ useEffect(() => {
     showToast(`${arr.length} memories imported ✦`);
   };
   const handleExported = () => { const t = Date.now(); setLastBackupAt(t); setLastBackupAtState(t); setShowBackupNudge(false); };
-  const resetView = () => { haptic("medium"); mapRef.current?.flyTo(homeCenterRef.current, DEFAULT_ZOOM, { duration: 1.4 }); setSelectedPinId(null); setMode("idle"); };
+  const resetView = () => { haptic("medium"); playSound("swoosh"); mapRef.current?.flyTo(homeCenterRef.current, DEFAULT_ZOOM, { duration: 1.4 }); setSelectedPinId(null); setMode("idle"); };
   const randomMemory = () => {
     const pool = filteredPins.length > 0 ? filteredPins : [];
     if (pool.length === 0) {
