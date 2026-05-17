@@ -2914,11 +2914,8 @@ const endOnboarding = () => {
       />
     )}
 
-      {showFirstNudge && !showWhatsNew && pins.length === 0 && <FirstPlantNudge isDark={isDark} hasLocation={!!userLatLng} onPlantHere={() => { setShowFirstNudge(false); plantHere(); }} onPlantWhere={() => { setShowFirstNudge(false); setMode("placing"); showToast("long press anywhere on the map ✦", 3000); }} onDismiss={() => setShowFirstNudge(false)} />}
-
-      {placingActive && <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", pointerEvents: "none", zIndex: 90, textAlign: "center", fontFamily: "'Playfair Display',serif", fontStyle: "italic", fontSize: 17, color: isDark ? "rgba(255,255,255,0.5)" : "rgba(10,9,8,0.5)", letterSpacing: "0.08em", animation: "fadeIn 0.3s ease", textShadow: isDark ? "0 2px 12px rgba(0,0,0,0.8)" : "0 2px 12px rgba(255,255,255,0.7)" }
-      }> your first memory starts here, long press anywhere on the map ✦</div>}
-
+    {showFirstNudge && !showWhatsNew && pins.length === 0 && <FirstPlantNudge isDark={isDark} hasLocation={!!userLatLng} onPlantHere={() => { setShowFirstNudge(false); plantHere(); }} onPlantWhere={() => { setShowFirstNudge(false); setMode("placing"); }} onDismiss={() => { setShowFirstNudge(false); setMode("placing"); }} />}
+    {placingActive && pins.length === 0 && <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", pointerEvents: "none", zIndex: 90, textAlign: "center", fontFamily: "'Playfair Display',serif", fontStyle: "italic", fontSize: 20, color: isDark ? "rgba(255,255,255,0.75)" : "rgba(10,9,8,0.72)", letterSpacing: "0.08em", animation: "fadeIn 0.3s ease", textShadow: isDark ? "0 2px 16px rgba(0,0,0,0.95), 0 0 40px rgba(0,0,0,0.6)" : "0 2px 16px rgba(255,255,255,0.98), 0 0 40px rgba(255,255,255,0.8)" }}>the map is waiting for you<br />to plant your memories.<br /><br />long press anywhere ✦</div>}
       <Toast msg={toast} isDark={isDark} />
       <SpeedInsights />
       <Analytics />
