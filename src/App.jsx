@@ -2413,6 +2413,37 @@ export default function Yearning() {
   useEffect(() => { getFirstRunAt(); }, []);
   useEffect(() => { if ("Notification" in window) setNotifPermission(Notification.permission); }, []);
 
+  /* ─── Android back button handler ──────────────────────────────────────── */
+useEffect(() => {
+  window.history.pushState({ yearning: true }, "");
+
+  const handlePop = () => {
+    window.history.pushState({ yearning: true }, "");
+
+    if (forgetTargetId) { setForgetTargetId(null); return; }
+    if (sharingPin) { setSharingPin(null); return; }
+    if (editingPin) { setEditingPin(null); return; }
+    if (mode === "writing") { setMode("idle"); setPlacingCoords(null); setAnniversaryHint(null); return; }
+    if (showMemorySearch) { setShowMemorySearch(false); return; }
+    if (showExportImport) { setShowExportImport(false); return; }
+    if (showTipJar) { setShowTipJar(false); return; }
+    if (showHelp) { setShowHelp(false); return; }
+    if (showWhatsNew) { setLastSeenVersion(APP_VERSION); setShowWhatsNew(false); setWhatsNewIsFirstAck(false); return; }
+    if (selectedPinId) { setSelectedPinId(null); return; }
+    if (mode === "placing") { setMode("idle"); return; }
+    if (showHeatmap) { setShowHeatmap(false); return; }
+  };
+
+  window.addEventListener("popstate", handlePop);
+  return () => window.removeEventListener("popstate", handlePop);
+}, [
+  forgetTargetId, sharingPin, editingPin, mode, showMemorySearch,
+  showExportImport, showTipJar, showHelp, showWhatsNew, selectedPinId,
+  showHeatmap,
+]);
+
+
+
   /* ─── Onboarding ────────────────────────────────────────────────────── */
   useEffect(() => {
     const onboarded = ls.get(K.ONBOARDED);
