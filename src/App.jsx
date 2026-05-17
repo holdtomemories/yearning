@@ -49,11 +49,41 @@ const MOODS_LIGHT = [
 ];
 
 const TOUR_STEPS = [
-  { targetId: "btn-plant", title: "Plant Here ✦", desc: "Instantly plants a memory pin at your GPS location — or at the map center if location is off." },
-  { targetId: "btn-search-mem", title: "Search Memories", desc: "Search through every memory you've ever planted — by title, body, mood, or place." },
-  { targetId: "btn-filter", title: "Filter Moods", desc: "Tap the funnel to open the filter tray and filter by mood." },
-  { targetId: "btn-menu", title: "More Options ≡", desc: "Locate, heatmap, theme, export, support, help — all your low-frequency tools." },
-  { targetId: "search-expand-btn", title: "Search Places", desc: "Tap the magnifying glass to expand a search bar and fly to any place." },
+  {
+    targetId: "btn-plant",
+    title: "Plant Here ✦",
+    desc: "The heart of yearning. Tap this to plant a memory exactly where you are — or at the center of the map if location is off.",
+  },
+  {
+    targetId: "btn-locate",
+    title: "Locate Me ◎",
+    desc: "Find yourself on the map. A soft cyan pulse will mark your spot.",
+  },
+  {
+    targetId: "btn-reset",
+    title: "Reset View ⌂",
+    desc: "Lost in the map? This gently brings you back to the world view.",
+  },
+  {
+    targetId: "btn-random",
+    title: "Random Memory ↝",
+    desc: "Surprise yourself. Jump to a memory you'd forgotten you wrote.",
+  },
+  {
+    targetId: "btn-menu",
+    title: "More Tools ≡",
+    desc: "Search your memories, toggle the heatmap, switch themes, export your data, or open the help center. Everything else lives here.",
+  },
+  {
+    targetId: "search-expand-btn",
+    title: "Search Places ⌖",
+    desc: "Travel anywhere on earth. Type a place name and the map flies to it.",
+  },
+  {
+    targetId: "btn-filter",
+    title: "Filter & Time Travel ⊟",
+    desc: "Filter memories by mood, or drag the time slider to see only memories from a specific period of your life.",
+  },
 ];
 
 /* ─── Helpers ───────────────────────────────────────────────────────────── */
@@ -1021,26 +1051,119 @@ function OnThisDayNudge({ pin, isDark, onView, onDismiss }) {
   );
 }
 
-function WelcomeModal({ onStartTour, onSkip }) {
+function WelcomeModal({ onContinue, onSkip, isDark }) {
+  const T = useTheme(isDark);
+  const purple = isDark ? "#a855f7" : "#6d28d9";
+  const purpleSoft = isDark ? "#c084fc" : "#6d28d9";
+
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", animation: "fadeIn 0.35s ease", padding: 16, overflowY: "auto" }}>
-      <div className="yr-modal" style={{ width: 450, maxWidth: "100%", background: "rgba(11,10,17,0.98)", border: "1px solid rgba(168,85,247,0.25)", borderTop: "2px solid rgba(168,85,247,0.85)", borderRadius: "0 0 8px 8px", padding: "38px 32px 30px", boxShadow: "0 32px 80px rgba(0,0,0,0.7)" }}>
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: "rgba(232,228,217,0.6)", letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 16, fontWeight: 600 }}>welcome</div>
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 30, fontWeight: 500, color: "#ffffff", letterSpacing: "0.03em", lineHeight: 1, marginBottom: 8 }}>Welcome to Yearning</div>
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 13.5, color: "rgba(232,228,217,0.7)", fontStyle: "italic", letterSpacing: "0.1em", marginBottom: 24 }}>leave a part of yourself somewhere</div>
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 14.5, color: "rgba(232,228,217,0.92)", lineHeight: 1.85, fontStyle: "italic" }}>A quiet place to plant your thoughts, feelings, and memories exactly where they happened — anywhere on earth.</div>
+    <div style={{
+      position: "fixed", inset: 0,
+      background: isDark ? "rgba(0,0,0,0.92)" : "rgba(245,243,238,0.96)",
+      backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+      zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center",
+      animation: "fadeIn 0.5s ease", padding: 16, overflowY: "auto",
+    }}>
+      <div className="yr-modal" style={{
+        width: 460, maxWidth: "100%",
+        background: T.panelBg,
+        border: `1px solid ${purple}40`,
+        borderTop: `2px solid ${purple}`,
+        borderRadius: "0 0 10px 10px",
+        padding: "42px 32px 30px",
+        boxShadow: isDark ? "0 32px 80px rgba(0,0,0,0.7)" : "0 32px 80px rgba(0,0,0,0.18)",
+      }}>
+        <div style={{ textAlign: "center", marginBottom: 22 }}>
+          <div style={{
+            display: "inline-block", fontSize: 38, color: purpleSoft,
+            filter: `drop-shadow(0 0 18px ${purple}88)`,
+            animation: "sealStamp 0.8s ease-out",
+          }}>✦</div>
+        </div>
+
+        <div style={{
+          fontFamily: "'Lora',serif", fontSize: 10.5,
+          color: T.textMuted, letterSpacing: "0.32em",
+          textTransform: "uppercase", marginBottom: 14, fontWeight: 600,
+          textAlign: "center",
+        }}>welcome</div>
+
+        <div style={{
+          fontFamily: "'Playfair Display',serif", fontSize: 32, fontWeight: 500,
+          color: T.textPrimary, letterSpacing: "0.02em", lineHeight: 1.05,
+          marginBottom: 10, textAlign: "center", fontStyle: "italic",
+        }}>Yearning Map</div>
+
+        <div style={{
+          fontFamily: "'Lora',serif", fontSize: 13.5,
+          color: T.textMuted, fontStyle: "italic",
+          letterSpacing: "0.14em", marginBottom: 28, textAlign: "center",
+        }}>leave a part of yourself somewhere</div>
+
+        <div style={{
+          fontFamily: "'Lora',serif", fontSize: 15,
+          color: T.textSec, lineHeight: 1.85, fontStyle: "italic",
+          marginBottom: 26, textAlign: "center",
+        }}>
+          A quiet place to plant your thoughts, feelings,
+          <br />and memories — exactly where they happened.
+        </div>
+
+        <div style={{ borderTop: `1px solid ${T.panelBorder}`, margin: "0 0 24px" }} />
+
         {[
-          { bg: "rgba(8,145,178,", col: "#22d3ee", icon: "◉", head: "Your memories never leave your device.", body: "Everything is stored locally — no servers, no accounts, no tracking." },
-          { bg: "rgba(168,85,247,", col: "#c084fc", icon: "↻", head: "Updates won't erase your memories.", body: "Every new version safely keeps everything you've ever planted." },
-        ].map(({ bg, col, icon, head, body }) => (
-          <div key={head} style={{ display: "flex", alignItems: "flex-start", gap: 14, background: `${bg}0.1)`, border: `1px solid ${bg}0.3)`, borderLeft: `3px solid ${bg}0.75)`, padding: "14px 16px", margin: "24px 0 14px", borderRadius: "0 6px 6px 0" }}>
-            <div style={{ fontSize: 16, color: col, marginTop: 1, flexShrink: 0 }}>{icon}</div>
-            <div style={{ fontFamily: "'Lora',serif", fontSize: 13.5, color: "rgba(232,228,217,0.92)", lineHeight: 1.8 }}><span style={{ color: "#fff", fontStyle: "italic", fontWeight: 600 }}>{head}</span><br />{body}</div>
+          { icon: "◉", color: isDark ? "#22d3ee" : "#0e7490",
+            head: "Your memories never leave your device.",
+            body: "No servers. No accounts. No tracking. Ever." },
+          { icon: "↻", color: isDark ? "#86efac" : "#15803d",
+            head: "Updates won't erase what you've planted.",
+            body: "Every new version safely keeps everything." },
+          { icon: "✎", color: purpleSoft,
+            head: "You're free to write anything — really.",
+            body: "Honest, raw, unfiltered. No one else can see it." },
+        ].map(({ icon, color, head, body }) => (
+          <div key={head} style={{
+            display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 14,
+            padding: "12px 14px",
+            background: `${color}${isDark ? "10" : "08"}`,
+            border: `1px solid ${color}30`,
+            borderLeft: `3px solid ${color}`,
+            borderRadius: "0 6px 6px 0",
+          }}>
+            <div style={{
+              fontSize: 16, color, marginTop: 1, flexShrink: 0,
+              minWidth: 18, textAlign: "center",
+            }}>{icon}</div>
+            <div style={{
+              fontFamily: "'Lora',serif", fontSize: 13.5,
+              color: T.textSec, lineHeight: 1.65,
+            }}>
+              <span style={{
+                color: T.textPrimary, fontStyle: "italic", fontWeight: 600,
+              }}>{head}</span>
+              <br />
+              <span style={{ fontStyle: "italic", opacity: 0.85 }}>{body}</span>
+            </div>
           </div>
         ))}
-        <div style={{ display: "flex", gap: 10, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", marginTop: 10 }}>
-          <button onClick={() => { haptic("light"); onSkip(); }} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.16)", color: "rgba(232,228,217,0.7)", fontFamily: "'Lora',serif", fontSize: 12, letterSpacing: "0.16em", cursor: "pointer", padding: "11px 20px", borderRadius: 6, minHeight: 52, fontWeight: 500 }}>skip tour</button>
-          <button onClick={() => { haptic("medium"); onStartTour(); }} style={{ background: "rgba(168,85,247,0.18)", border: "1px solid rgba(168,85,247,0.7)", color: "rgba(216,180,254,1)", fontFamily: "'Lora',serif", fontSize: 13, letterSpacing: "0.2em", padding: "12px 28px", borderRadius: 6, cursor: "pointer", minHeight: 52, fontWeight: 700 }}>show me around →</button>
+
+        <div style={{
+          display: "flex", gap: 10, justifyContent: "space-between",
+          alignItems: "center", flexWrap: "wrap", marginTop: 22,
+        }}>
+          <button onClick={() => { haptic("light"); onSkip(); }} style={{
+            background: "transparent", border: `1px solid ${T.panelBorder}`,
+            color: T.textMuted, fontFamily: "'Lora',serif", fontSize: 12,
+            letterSpacing: "0.16em", cursor: "pointer",
+            padding: "11px 20px", borderRadius: 6,
+            minHeight: 52, fontWeight: 500,
+          }}>skip intro</button>
+          <button onClick={() => { haptic("medium"); onContinue(); }} style={{
+            background: `${purple}22`, border: `1px solid ${purple}`,
+            color: purpleSoft, fontFamily: "'Lora',serif", fontSize: 13,
+            letterSpacing: "0.2em", padding: "12px 28px", borderRadius: 6,
+            cursor: "pointer", minHeight: 52, fontWeight: 700,
+          }}>begin →</button>
         </div>
       </div>
     </div>
@@ -1066,46 +1189,440 @@ function FirstPlantNudge({ isDark, onPlantHere, onPlantWhere, onDismiss, hasLoca
 }
 
 /* ─── Tour overlay ──────────────────────────────────────────────────────── */
-function TourOverlay({ step, total, onNext, onPrev, onSkip }) {
+/* The 3-page emotional intro between welcome and the UI tour. */
+function IntroSequence({ onComplete, onSkip, isDark }) {
+  const T = useTheme(isDark);
+  const purpleSoft = isDark ? "#c084fc" : "#6d28d9";
+  const [page, setPage] = useState(0);
+
+  const pages = [
+    {
+      glyph: "✦", color: purpleSoft, kicker: "the idea",
+      title: "Plant a thought, somewhere real.",
+      body: "Every memory you write is anchored to an exact spot on earth — the place it happened. Come back later, and find it waiting for you.",
+    },
+    {
+      glyph: "◈", color: isDark ? "#22d3ee" : "#0e7490", kicker: "the moods",
+      title: "Every memory has a feeling.",
+      body: "Wonder, peace, longing, joy, ache, gratitude — or your own. Each becomes a soft glow on the map, so you can see where your heart has been.",
+      showMoods: true,
+    },
+    {
+      glyph: "✎", color: isDark ? "#86efac" : "#15803d", kicker: "the gestures",
+      title: "Three ways to plant.",
+      gestures: [
+        { sym: "✦", label: "Tap the plant button to drop a memory at your current location." },
+        { sym: "+",  label: "Open the menu, choose “Tap anywhere”, then tap a spot." },
+        { sym: "◷", label: "Or just long-press anywhere on the map to plant instantly." },
+      ],
+    },
+  ];
+
+  const current = pages[page];
+  const isLast = page === pages.length - 1;
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0,
+      background: isDark ? "rgba(0,0,0,0.94)" : "rgba(245,243,238,0.97)",
+      backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
+      zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center",
+      animation: "fadeIn 0.4s ease", padding: 16, overflowY: "auto",
+    }}>
+      <div key={page} style={{
+        width: 460, maxWidth: "100%",
+        background: T.panelBg,
+        border: `1px solid ${current.color}40`,
+        borderTop: `2px solid ${current.color}`,
+        borderRadius: "0 0 10px 10px",
+        padding: "44px 32px 28px",
+        boxShadow: isDark ? "0 32px 80px rgba(0,0,0,0.7)" : "0 32px 80px rgba(0,0,0,0.18)",
+        animation: "slideUpIn 0.45s ease",
+      }}>
+        <div style={{ textAlign: "center", marginBottom: 18 }}>
+          <div style={{
+            display: "inline-block", fontSize: 42, color: current.color,
+            filter: `drop-shadow(0 0 16px ${current.color}aa)`,
+          }}>{current.glyph}</div>
+        </div>
+
+        <div style={{
+          fontFamily: "'Lora',serif", fontSize: 10.5,
+          color: current.color, letterSpacing: "0.34em",
+          textTransform: "uppercase", marginBottom: 14, fontWeight: 700,
+          textAlign: "center",
+        }}>{current.kicker}</div>
+
+        <div style={{
+          fontFamily: "'Playfair Display',serif", fontSize: 26,
+          fontWeight: 500, fontStyle: "italic",
+          color: T.textPrimary, letterSpacing: "0.01em",
+          lineHeight: 1.25, marginBottom: 18, textAlign: "center",
+        }}>{current.title}</div>
+
+        {current.body && (
+          <div style={{
+            fontFamily: "'Lora',serif", fontSize: 14.5,
+            color: T.textSec, lineHeight: 1.85, fontStyle: "italic",
+            marginBottom: 24, textAlign: "center", padding: "0 8px",
+          }}>{current.body}</div>
+        )}
+
+        {current.showMoods && (
+          <div style={{
+            display: "flex", flexWrap: "wrap", gap: 8,
+            justifyContent: "center", marginBottom: 24, padding: "0 8px",
+          }}>
+            {getMoods(isDark).slice(0, 6).map(m => (
+              <div key={m.key} style={{
+                display: "flex", alignItems: "center", gap: 6,
+                background: `${m.color}${isDark ? "18" : "12"}`,
+                border: `1px solid ${m.color}55`,
+                borderRadius: 20, padding: "6px 12px",
+              }}>
+                <div style={{
+                  width: 7, height: 7, borderRadius: "50%",
+                  background: m.color, boxShadow: `0 0 6px ${m.color}aa`,
+                }} />
+                <span style={{
+                  fontFamily: "'Lora',serif", fontSize: 11.5,
+                  color: m.color, fontWeight: 700, letterSpacing: "0.08em",
+                }}>{m.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {current.gestures && (
+          <div style={{ marginBottom: 24 }}>
+            {current.gestures.map((g, i) => (
+              <div key={i} style={{
+                display: "flex", alignItems: "flex-start", gap: 14,
+                padding: "10px 12px", marginBottom: 8,
+                background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                border: `1px solid ${T.panelBorder}`,
+                borderLeft: `3px solid ${current.color}`,
+                borderRadius: "0 6px 6px 0",
+              }}>
+                <div style={{
+                  width: 28, height: 28, borderRadius: 6,
+                  background: `${current.color}22`, color: current.color,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 14, fontWeight: 700, flexShrink: 0,
+                }}>{g.sym}</div>
+                <div style={{
+                  fontFamily: "'Lora',serif", fontSize: 13.5,
+                  color: T.textSec, lineHeight: 1.6,
+                  fontStyle: "italic", paddingTop: 4,
+                }}>{g.label}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{
+          display: "flex", justifyContent: "center", gap: 8, marginBottom: 22,
+        }}>
+          {pages.map((_, i) => (
+            <div key={i} style={{
+              width: i === page ? 22 : 7, height: 7, borderRadius: 3,
+              background: i === page ? current.color : T.panelBorder,
+              transition: "all 0.3s ease",
+              opacity: i === page ? 1 : 0.6,
+            }} />
+          ))}
+        </div>
+
+        <div style={{
+          display: "flex", gap: 10,
+          justifyContent: "space-between", alignItems: "center",
+        }}>
+          <button onClick={() => { haptic("light"); onSkip(); }} style={{
+            background: "transparent", border: "none",
+            color: T.textMuted, fontFamily: "'Lora',serif",
+            fontSize: 11.5, letterSpacing: "0.14em", cursor: "pointer",
+            padding: "10px 12px", minHeight: 52, fontWeight: 500,
+          }}>skip</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            {page > 0 && (
+              <button onClick={() => { haptic("light"); setPage(p => Math.max(0, p - 1)); }} style={{
+                background: "transparent", border: `1px solid ${T.panelBorder}`,
+                color: T.textSec, fontFamily: "'Lora',serif", fontSize: 12,
+                letterSpacing: "0.14em", cursor: "pointer",
+                padding: "10px 18px", borderRadius: 6,
+                minHeight: 52, fontWeight: 500,
+              }}>← back</button>
+            )}
+            <button onClick={() => {
+              haptic("light");
+              if (isLast) onComplete(); else setPage(p => p + 1);
+            }} style={{
+              background: `${current.color}22`, border: `1px solid ${current.color}`,
+              color: current.color, fontFamily: "'Lora',serif", fontSize: 12.5,
+              letterSpacing: "0.18em", padding: "10px 24px", borderRadius: 6,
+              cursor: "pointer", minHeight: 52, fontWeight: 700,
+            }}>{isLast ? "show me the map →" : "next →"}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* Replacement TourOverlay — theme-aware, progress bar, graceful target retry. */
+function TourOverlay({ step, total, onNext, onPrev, onSkip, isDark }) {
+  const T = useTheme(isDark);
+  const purple = isDark ? "#a855f7" : "#6d28d9";
+  const purpleSoft = isDark ? "#c084fc" : "#6d28d9";
+
   const [rect, setRect] = useState(null);
+  const [missing, setMissing] = useState(false);
   const tipRef = useRef(null);
-  const [tipPos, setTipPos] = useState({ top: 0, left: 0 });
+  const [tipPos, setTipPos] = useState({ top: 0, left: 0, width: 300 });
+  const stepData = TOUR_STEPS[step];
+
   useEffect(() => {
-    const target = document.getElementById(TOUR_STEPS[step].targetId);
-    if (!target) { onNext(); return; }
-    const r = target.getBoundingClientRect(); setRect(r);
-    setTimeout(() => {
-      if (!tipRef.current) return;
-      const tipH = tipRef.current.offsetHeight || 170, tipW = 240;
-      const cx = r.left + r.width / 2, cy = r.top + r.height / 2, rad = Math.max(r.width, r.height) / 2 + 12;
-      let tipTop = cy + rad + 14;
-      if (tipTop + tipH > window.innerHeight - 20) tipTop = Math.max(20, cy - rad - tipH - 14);
-      let tipLeft = Math.max(14, Math.min(cx - tipW / 2, window.innerWidth - tipW - 14));
-      setTipPos({ top: tipTop, left: tipLeft });
-    }, 0);
-  }, [step]);
-  if (!rect) return null;
-  const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2, rad = Math.max(rect.width, rect.height) / 2 + 12;
-  const { title, desc } = TOUR_STEPS[step];
+    setMissing(false);
+    setRect(null);
+
+    let cancelled = false;
+    const findTarget = (attempts = 0) => {
+      if (cancelled) return;
+      const target = document.getElementById(stepData.targetId);
+      if (!target) {
+        if (attempts < 5) { setTimeout(() => findTarget(attempts + 1), 100); return; }
+        setMissing(true);
+        setTimeout(() => { if (!cancelled) onNext(); }, 250);
+        return;
+      }
+      setRect(target.getBoundingClientRect());
+    };
+    findTarget();
+    return () => { cancelled = true; };
+  }, [step, stepData.targetId, onNext]);
+
+  useEffect(() => {
+    if (!rect || !tipRef.current) return;
+    const tipH = tipRef.current.offsetHeight || 200;
+    const tipW = Math.min(300, window.innerWidth - 28);
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const rad = Math.max(rect.width, rect.height) / 2 + 14;
+
+    let tipTop = cy + rad + 16;
+    if (tipTop + tipH > window.innerHeight - 20) {
+      tipTop = Math.max(16, cy - rad - tipH - 16);
+    }
+    const tipLeft = Math.max(14, Math.min(cx - tipW / 2, window.innerWidth - tipW - 14));
+    setTipPos({ top: tipTop, left: tipLeft, width: tipW });
+  }, [rect]);
+
+  if (missing || !rect) {
+    return (
+      <div style={{
+        position: "fixed", inset: 0,
+        background: "rgba(0,0,0,0.4)",
+        zIndex: 999, pointerEvents: "none",
+      }} />
+    );
+  }
+
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  const rad = Math.max(rect.width, rect.height) / 2 + 14;
+  const progress = ((step + 1) / total) * 100;
+  const isLast = step === total - 1;
+
   return (
     <>
-      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 999, pointerEvents: "none", animation: "fadeIn 0.2s ease" }} />
-      <div className="yr-spotlight" style={{ left: cx - rad, top: cy - rad, width: rad * 2, height: rad * 2 }} />
-      <div ref={tipRef} className="yr-tour-tip" style={{ top: tipPos.top, left: tipPos.left }}>
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 10.5, color: "rgba(216,180,254,0.9)", letterSpacing: "0.24em", textTransform: "uppercase", marginBottom: 6, fontWeight: 600 }}>{step + 1} of {total}</div>
-        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 16, color: "#fff", marginBottom: 8, lineHeight: 1.3, fontWeight: 500 }}>{title}</div>
-        <div style={{ fontFamily: "'Lora',serif", fontSize: 13, color: "rgba(232,228,217,0.92)", lineHeight: 1.7, fontStyle: "italic", marginBottom: 14 }}>{desc}</div>
-        <div style={{ display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center" }}>
-          <button onClick={() => { haptic("light"); onSkip(); }} style={{ background: "transparent", border: "none", color: "rgba(232,228,217,0.6)", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.14em", cursor: "pointer", padding: 4, fontWeight: 500, minHeight: 52, minWidth: 52 }}>skip</button>
+      <div style={{
+        position: "fixed", inset: 0,
+        background: isDark ? "rgba(0,0,0,0.7)" : "rgba(20,18,15,0.55)",
+        zIndex: 999, pointerEvents: "none",
+        animation: "fadeIn 0.25s ease",
+      }} />
+
+      <div className="yr-spotlight" style={{
+        left: cx - rad, top: cy - rad,
+        width: rad * 2, height: rad * 2,
+        borderColor: isDark ? "rgba(192,132,252,0.9)" : "rgba(109,40,217,0.95)",
+      }} />
+
+      <div ref={tipRef} style={{
+        position: "fixed",
+        top: tipPos.top, left: tipPos.left, width: tipPos.width,
+        background: T.panelBg,
+        backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+        border: `1px solid ${purple}55`,
+        borderTop: `2px solid ${purple}`,
+        borderRadius: "0 0 10px 10px",
+        padding: "16px 18px 14px",
+        zIndex: 1002,
+        boxShadow: isDark ? "0 14px 48px rgba(0,0,0,0.7)" : "0 14px 48px rgba(0,0,0,0.22)",
+        animation: "slideDown 0.3s ease",
+        overflow: "hidden",
+      }}>
+        <div style={{
+          position: "absolute", top: 0, left: 0,
+          height: 2, width: `${progress}%`,
+          background: purple, boxShadow: `0 0 8px ${purple}`,
+          transition: "width 0.4s ease",
+        }} />
+
+        <div style={{
+          display: "flex", justifyContent: "space-between", alignItems: "baseline",
+          marginBottom: 8,
+        }}>
+          <div style={{
+            fontFamily: "'Lora',serif", fontSize: 10.5,
+            color: purpleSoft, letterSpacing: "0.26em",
+            textTransform: "uppercase", fontWeight: 700,
+          }}>step {step + 1} of {total}</div>
+          <div style={{ display: "flex", gap: 3 }}>
+            {Array.from({ length: total }).map((_, i) => (
+              <div key={i} style={{
+                width: 5, height: 5, borderRadius: "50%",
+                background: i <= step ? purple : T.panelBorder,
+                opacity: i <= step ? 1 : 0.5,
+                transition: "all 0.3s ease",
+              }} />
+            ))}
+          </div>
+        </div>
+
+        <div style={{
+          fontFamily: "'Playfair Display',serif", fontSize: 17,
+          color: T.textPrimary, marginBottom: 10,
+          lineHeight: 1.3, fontWeight: 500,
+        }}>{stepData.title}</div>
+
+        <div style={{
+          fontFamily: "'Lora',serif", fontSize: 13.5,
+          color: T.textSec, lineHeight: 1.7,
+          fontStyle: "italic", marginBottom: 16,
+        }}>{stepData.desc}</div>
+
+        <div style={{
+          display: "flex", gap: 8,
+          justifyContent: "space-between", alignItems: "center",
+        }}>
+          <button onClick={() => { haptic("light"); onSkip(); }} style={{
+            background: "transparent", border: "none",
+            color: T.textMuted, fontFamily: "'Lora',serif",
+            fontSize: 11.5, letterSpacing: "0.14em",
+            cursor: "pointer", padding: 4, fontWeight: 500,
+            minHeight: 44, minWidth: 44,
+          }}>skip tour</button>
           <div style={{ display: "flex", gap: 6 }}>
-            {step > 0 && <button onClick={() => { haptic("light"); onPrev(); }} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.18)", color: "rgba(232,228,217,0.85)", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.14em", cursor: "pointer", padding: "7px 14px", borderRadius: 5, minHeight: 52, fontWeight: 500 }}>← back</button>}
-            <button onClick={() => { haptic("medium"); onNext(); }} style={{ background: "rgba(168,85,247,0.2)", border: "1px solid rgba(168,85,247,0.7)", color: "rgba(216,180,254,1)", fontFamily: "'Lora',serif", fontSize: 11.5, letterSpacing: "0.18em", cursor: "pointer", padding: "7px 16px", borderRadius: 5, minHeight: 52, fontWeight: 700 }}>{step === total - 1 ? "begin ✦" : "next →"}</button>
+            {step > 0 && (
+              <button onClick={() => { haptic("light"); onPrev(); }} style={{
+                background: "transparent", border: `1px solid ${T.panelBorder}`,
+                color: T.textSec, fontFamily: "'Lora',serif", fontSize: 11.5,
+                letterSpacing: "0.14em", cursor: "pointer",
+                padding: "8px 14px", borderRadius: 5,
+                minHeight: 44, fontWeight: 500,
+              }}>← back</button>
+            )}
+            <button onClick={() => { haptic("medium"); onNext(); }} style={{
+              background: `${purple}28`, border: `1px solid ${purple}`,
+              color: purpleSoft, fontFamily: "'Lora',serif", fontSize: 11.5,
+              letterSpacing: "0.18em", cursor: "pointer",
+              padding: "8px 16px", borderRadius: 5,
+              minHeight: 44, fontWeight: 700,
+            }}>{isLast ? "almost done ✦" : "next →"}</button>
           </div>
         </div>
       </div>
     </>
   );
 }
+
+/* Closing screen — celebrates completing the tour. */
+function TourComplete({ onBegin, isDark }) {
+  const T = useTheme(isDark);
+  const purple = isDark ? "#a855f7" : "#6d28d9";
+  const purpleSoft = isDark ? "#c084fc" : "#6d28d9";
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0,
+      background: isDark ? "rgba(0,0,0,0.92)" : "rgba(245,243,238,0.96)",
+      backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
+      zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center",
+      animation: "fadeIn 0.4s ease", padding: 16,
+    }}>
+      <div style={{
+        width: 420, maxWidth: "100%",
+        background: T.panelBg,
+        border: `1px solid ${purple}45`,
+        borderTop: `2px solid ${purple}`,
+        borderRadius: "0 0 10px 10px",
+        padding: "44px 32px 30px",
+        boxShadow: isDark ? "0 32px 80px rgba(0,0,0,0.7)" : "0 32px 80px rgba(0,0,0,0.18)",
+        textAlign: "center", animation: "slideUpIn 0.5s ease",
+      }}>
+        <div style={{
+          display: "inline-block", fontSize: 46, color: purpleSoft,
+          filter: `drop-shadow(0 0 22px ${purple})`,
+          animation: "sealStamp 0.8s ease-out", marginBottom: 18,
+        }}>✦</div>
+
+        <div style={{
+          fontFamily: "'Lora',serif", fontSize: 10.5,
+          color: purpleSoft, letterSpacing: "0.32em",
+          textTransform: "uppercase", marginBottom: 14, fontWeight: 700,
+        }}>you're ready</div>
+
+        <div style={{
+          fontFamily: "'Playfair Display',serif", fontSize: 26,
+          fontWeight: 500, fontStyle: "italic",
+          color: T.textPrimary, letterSpacing: "0.01em",
+          lineHeight: 1.25, marginBottom: 18,
+        }}>The map is yours now.</div>
+
+        <div style={{
+          fontFamily: "'Lora',serif", fontSize: 14.5,
+          color: T.textSec, lineHeight: 1.85, fontStyle: "italic",
+          marginBottom: 28, padding: "0 4px",
+        }}>
+          Plant something small to begin —
+          <br />a feeling, a place, a thought you don't want to lose.
+        </div>
+
+        <div style={{ borderTop: `1px solid ${T.panelBorder}`, margin: "0 0 20px" }} />
+
+        <div style={{
+          fontFamily: "'Lora',serif", fontSize: 11.5,
+          color: T.textMuted, fontStyle: "italic",
+          letterSpacing: "0.06em", lineHeight: 1.6, marginBottom: 24,
+        }}>
+          The help center lives in the menu — tap{" "}
+          <span style={{
+            background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+            color: T.textPrimary, padding: "2px 7px", borderRadius: 4,
+            fontFamily: "'Lora',serif", fontWeight: 700, fontStyle: "normal",
+            border: `1px solid ${T.panelBorder}`,
+          }}>≡</span> then{" "}
+          <span style={{
+            background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+            color: T.textPrimary, padding: "2px 7px", borderRadius: 4,
+            fontFamily: "'Lora',serif", fontWeight: 700, fontStyle: "italic",
+            border: `1px solid ${T.panelBorder}`,
+          }}>i</span> any time.
+        </div>
+
+        <button onClick={() => { haptic("medium"); onBegin(); }} style={{
+          background: `${purple}28`, border: `1px solid ${purple}`,
+          color: purpleSoft, fontFamily: "'Lora',serif", fontSize: 13,
+          letterSpacing: "0.2em", padding: "12px 32px",
+          borderRadius: 6, cursor: "pointer",
+          minHeight: 52, fontWeight: 700,
+        }}>begin yearning ✦</button>
+      </div>
+    </div>
+  );
+}
+
 
 /* ─── FIX: Expandable place search ─────────────────────────────────────────
    Problems fixed:
@@ -2225,8 +2742,27 @@ useEffect(() => {
     mapRef.current?.flyTo([p.lat, p.lng], 13, { duration: 1.8 });
     setSelectedPinId(p.id);
   };
-  const beginTour = () => { setOnboardPhase("tour"); setTourStep(0); setSelectedPinId(null); };
-  const endTour = () => { ls.set(K.ONBOARDED, "1"); setLastSeenVersion(APP_VERSION); setOnboardPhase("idle"); };
+  
+  const beginIntro = () => {
+  setOnboardPhase("intro");
+};
+
+const beginTour = () => {
+  setOnboardPhase("tour");
+  setTourStep(0);
+  setSelectedPinId(null);
+};
+
+const finishTour = () => {
+  setOnboardPhase("complete");
+};
+
+const endOnboarding = () => {
+  ls.set(K.ONBOARDED, "1");
+  setLastSeenVersion(APP_VERSION);
+  setOnboardPhase("idle");
+};
+
   const enableNotifications = async () => { haptic("light"); const granted = await requestNotificationPermission(); setNotifPermission(granted ? "granted" : (Notification?.permission || "denied")); if (granted) showToast("location reminders enabled ✦"); };
   const dismissWhatsNew = () => { setLastSeenVersion(APP_VERSION); setShowWhatsNew(false); setWhatsNewIsFirstAck(false); };
   const applyUpdate = () => { haptic("medium"); try { window.__yearningWaitingWorker?.postMessage({ type: "SKIP_WAITING" }); } catch {} setTimeout(() => window.location.reload(), 600); };
@@ -2340,8 +2876,43 @@ useEffect(() => {
       {showBackupNudge && !showWhatsNew && !onThisDayPin && <BackupNudge isDark={isDark} daysAgo={lastBackupAt ? daysBetween(lastBackupAt, Date.now()) : Math.min(99, daysBetween(getFirstRunAt(), Date.now()))} onExport={() => { setShowBackupNudge(false); setShowExportImport(true); }} onDismiss={() => { setShowBackupNudge(false); setLastBackupAt(Date.now() - (BACKUP_NUDGE_DAYS - 3) * 86400000); }} />}
       {onThisDayPin && !showWhatsNew && <OnThisDayNudge pin={onThisDayPin} isDark={isDark} onView={() => { const p = onThisDayPin; setOnThisDayPin(null); setAnnivDismissed(); setSelectedPinId(p.id); mapRef.current?.flyTo([p.lat, p.lng], 14, { duration: 1.8 }); }} onDismiss={() => { setOnThisDayPin(null); setAnnivDismissed(); }} />}
 
-      {onboardPhase === "welcome" && <WelcomeModal onStartTour={beginTour} onSkip={endTour} />}
-      {onboardPhase === "tour" && <TourOverlay step={tourStep} total={TOUR_STEPS.length} onNext={() => tourStep < TOUR_STEPS.length - 1 ? setTourStep(s => s + 1) : endTour()} onPrev={() => setTourStep(s => Math.max(0, s - 1))} onSkip={endTour} />}
+          {onboardPhase === "welcome" && (
+      <WelcomeModal
+        isDark={isDark}
+        onContinue={beginIntro}
+        onSkip={endOnboarding}
+      />
+    )}
+
+    {onboardPhase === "intro" && (
+      <IntroSequence
+        isDark={isDark}
+        onComplete={beginTour}
+        onSkip={endOnboarding}
+      />
+    )}
+
+    {onboardPhase === "tour" && (
+      <TourOverlay
+        isDark={isDark}
+        step={tourStep}
+        total={TOUR_STEPS.length}
+        onNext={() =>
+          tourStep < TOUR_STEPS.length - 1
+            ? setTourStep(s => s + 1)
+            : finishTour()
+        }
+        onPrev={() => setTourStep(s => Math.max(0, s - 1))}
+        onSkip={endOnboarding}
+      />
+    )}
+
+    {onboardPhase === "complete" && (
+      <TourComplete
+        isDark={isDark}
+        onBegin={endOnboarding}
+      />
+    )}
 
       {showFirstNudge && !showWhatsNew && pins.length === 0 && <FirstPlantNudge isDark={isDark} hasLocation={!!userLatLng} onPlantHere={() => { setShowFirstNudge(false); plantHere(); }} onPlantWhere={() => { setShowFirstNudge(false); setMode("placing"); showToast("tap anywhere on the map ✦", 3000); }} onDismiss={() => setShowFirstNudge(false)} />}
 
