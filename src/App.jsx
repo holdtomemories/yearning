@@ -2138,7 +2138,7 @@ useEffect(() => {
       mapRef.current?.flyTo([latitude, longitude], 14, { duration: 1.6 });
       setFoundPopup({ lat: latitude, lng: longitude });
       setTimeout(() => setFoundPopup(null), 2400);
-    }, () => { setLocationStatus("denied"); showToast("could not access your location"); }, { enableHighAccuracy: true, timeout: 10000 });
+    }, () => { setLocationStatus("denied"); showToast("enable location in settings to drop memories where you are right now"); }, { enableHighAccuracy: true, timeout: 10000 });
   }, [showToast]);
 
   const tryAnniversary = useCallback((lat, lng) => {
