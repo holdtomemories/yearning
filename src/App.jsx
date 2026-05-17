@@ -2712,7 +2712,8 @@ useEffect(() => {
 
   const plantHere = useCallback(() => {
     haptic("medium");
-    const target = userLatLng || (mapRef.current ? { lat: mapRef.current.getCenter().lat, lng: mapRef.current.getCenter().lng } : null);
+    const mapCenter = mapRef.current ? { lat: mapRef.current.getCenter().lat, lng: mapRef.current.getCenter().lng } : null;
+    const target = mapCenter || userLatLng;    
     if (!target) return;
     tryAnniversary(target.lat, target.lng);
     setPlacingCoords(target); setMode("writing");
