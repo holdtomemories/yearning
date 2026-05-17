@@ -2130,16 +2130,42 @@ useEffect(() => {
   }, [userLatLng, mapReady]);
 
   /* ─── Actions ───────────────────────────────────────────────────────── */
-  const locate = useCallback(() => {
-    if (!("geolocation" in navigator)) { showToast("location not supported on this device"); return; }
-    haptic("medium"); setLocationStatus("locating");
-    navigator.geolocation.getCurrentPosition(({ coords: { latitude, longitude } }) => {
-      setUserLatLng({ lat: latitude, lng: longitude }); setLocationStatus("found");
+// Add state near your other useState calls
+const [showLocationModal, setShowLocationModal] = useState(false);
+
+const locate = useCallback(() => {
+  if (!("geolocation" in navigator)) {
+    showToast("location not supported on this device");
+    return;
+  }
+  haptic("medium");
+  setLocationStatus("locating");
+  navigator.geolocation.getCurrentPosition(
+    ({ coords: { latitude, longitude } }) => {
+      setUserLatLng({ lat: latitude, lng: longitude });
+      setLocationStatus("found");
       mapRef.current?.flyTo([latitude, longitude], 14, { duration: 1.6 });
       setFoundPopup({ lat: latitude, lng: longitude });
       setTimeout(() => setFoundPopup(null), 2400);
-    }, () => { setLocationStatus("denied"); showToast("enable location in settings to drop memories where you are right now"); }, { enableHighAccuracy: true, timeout: 10000 });
-  }, [showToast]);
+    },
+    (err) => {
+      setLocationStatus("denied");
+      if (err.code === err.PERMISSION_DENIED) {
+        setShowLocationModal(true);
+      } else {
+        showToast("couldn't get your location, try again");
+      }
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}, [showToast]);
+
+const handleModalConfirm = useCallback(() => {
+  setShowLocationModal(false);
+  // Retry — if permission is "prompt", browser shows native dialog.
+  // If "denied" at the OS/browser level, this fails silently and user must change settings.
+  locate();
+}, [locate]);
 
   const tryAnniversary = useCallback((lat, lng) => {
     const week = 7 * 86400000, now = Date.now();
@@ -2292,6 +2318,66 @@ useEffect(() => {
       {forgetTargetId && <ForgetModal pin={pins.find(p => p.id === forgetTargetId)} onConfirm={() => handleForget(forgetTargetId)} onCancel={() => setForgetTargetId(null)} isDark={isDark} />}
       {showExportImport && <ExportImportModal pins={pins} onImport={handleImport} onClose={() => setShowExportImport(false)} onExported={handleExported} isDark={isDark} lastBackupAt={lastBackupAt} />}
       {showTipJar && <TipJarModal onClose={() => setShowTipJar(false)} isDark={isDark} />}
+      {showLocationModal && (
+        <Modal
+          onClose={() => setShowLocationModal(false)}
+          isDark={isDark}
+          accentColor={isDark ? "#22d3ee" : "#0e7490"}
+          zIndex={400}
+          width={400}
+        >
+          <ModalLabel isDark={isDark}>location needed</ModalLabel>
+          <ModalTitle isDark={isDark}>find where you are</ModalTitle>
+          <div style={{
+            fontFamily: "'Lora',serif",
+            fontSize: 14,
+            color: T.textSec,
+            lineHeight: 1.85,
+            fontStyle: "italic",
+            marginBottom: 22,
+          }}>
+            Turn on location access in your settings to plant memories at your current spot.
+          </div>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <button
+              onClick={() => { haptic("light"); setShowLocationModal(false); }}
+              style={{
+                background: "transparent",
+                border: `1px solid ${T.panelBorder}`,
+                color: T.textSec,
+                padding: "10px 20px",
+                borderRadius: 6,
+                cursor: "pointer",
+                fontFamily: "'Lora',serif",
+                fontSize: 13,
+                letterSpacing: "0.1em",
+                minHeight: 52,
+                fontWeight: 500,
+              }}
+            >
+              cancel
+            </button>
+            <button
+              onClick={handleModalConfirm}
+              style={{
+                background: isDark ? "rgba(34,211,238,0.18)" : "rgba(14,116,144,0.12)",
+                border: `1px solid ${isDark ? "#22d3ee" : "#0e7490"}`,
+                color: isDark ? "#22d3ee" : "#0e7490",
+                padding: "10px 24px",
+                borderRadius: 6,
+                cursor: "pointer",
+                fontFamily: "'Lora',serif",
+                fontSize: 13,
+                letterSpacing: "0.12em",
+                minHeight: 52,
+                fontWeight: 700,
+              }}
+            >
+              ok ✦
+            </button>
+          </div>
+        </Modal>
+      )}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} isDark={isDark} onEnableNotifications={enableNotifications} notifPermission={notifPermission} onShowChangelog={() => { setShowHelp(false); setShowWhatsNew(true); setWhatsNewIsFirstAck(false); }} pinCount={pins.length} listeningDays={listeningDays} />}
       {showWhatsNew && <WhatsNewModal entries={CHANGELOG} isFirstAcknowledgement={whatsNewIsFirstAck} onClose={dismissWhatsNew} isDark={isDark} pinCount={pins.length} />}
 
