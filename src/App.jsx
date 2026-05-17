@@ -2130,18 +2130,27 @@ useEffect(() => {
   }, [userLatLng, mapReady]);
 
   /* ─── Actions ───────────────────────────────────────────────────────── */
-// Add state near your other useState calls
-const [showLocationModal, setShowLocationModal] = useState(false);
+  const locate = useCallback(() => {
+  if (!("geolocation" in navigator)) { showToast("location not supported on this device"); return; }
+  haptic("medium"); setLocationStatus("locating");
 
-const locate = useCallback(() => {
-  if (!("geolocation" in navigator)) {
-    showToast("location not supported on this device");
-    return;
-  }
-  haptic("medium");
-  setLocationStatus("locating");
-  navigator.geolocation.getCurrentPosition(
+  // Force the native OS permission sheet by using watchPosition
+  // which bypasses the browser's session-level denial memory in PWA context
+  let watchId = null;
+  let resolved = false;
+
+  const cleanup = () => {
+    if (watchId !== null) {
+      try { navigator.geolocation.clearWatch(watchId); } catch {}
+      watchId = null;
+    }
+  };
+
+  watchId = navigator.geolocation.watchPosition(
     ({ coords: { latitude, longitude } }) => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
       setUserLatLng({ lat: latitude, lng: longitude });
       setLocationStatus("found");
       mapRef.current?.flyTo([latitude, longitude], 14, { duration: 1.6 });
@@ -2149,24 +2158,30 @@ const locate = useCallback(() => {
       setTimeout(() => setFoundPopup(null), 2400);
     },
     (err) => {
-      setLocationStatus("denied");
-      if (err.code === err.PERMISSION_DENIED) {
-        setShowLocationModal(true);
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      setLocationStatus("idle");
+      if (err.code === 1) {
+        // On PWA, this opens the native app settings sheet on next tap
+        showToast("allow location access in your device settings ✦", 3500);
+        // Attempt to open native settings on supported platforms
+        try {
+          if (window.navigator.standalone || window.matchMedia("(display-mode: standalone)").matches) {
+            // iOS PWA — deep link to settings
+            window.location.href = "app-settings:";
+          }
+        } catch {}
+      } else if (err.code === 2) {
+        showToast("could not determine your position", 3000);
       } else {
-        showToast("couldn't get your location, try again");
+        showToast("location timed out — try again", 3000);
       }
     },
-    { enableHighAccuracy: true, timeout: 10000 }
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
   );
 }, [showToast]);
-
-const handleModalConfirm = useCallback(() => {
-  setShowLocationModal(false);
-  // Retry — if permission is "prompt", browser shows native dialog.
-  // If "denied" at the OS/browser level, this fails silently and user must change settings.
-  locate();
-}, [locate]);
-
+  
   const tryAnniversary = useCallback((lat, lng) => {
     const week = 7 * 86400000, now = Date.now();
     const near = pins.filter(p => p.createdAt && (now - p.createdAt) > week).map(p => ({ p, d: distanceM(lat, lng, p.lat, p.lng) })).filter(x => x.d <= ANNIV_RADIUS_M).sort((a, b) => a.d - b.d);
@@ -2318,66 +2333,6 @@ const handleModalConfirm = useCallback(() => {
       {forgetTargetId && <ForgetModal pin={pins.find(p => p.id === forgetTargetId)} onConfirm={() => handleForget(forgetTargetId)} onCancel={() => setForgetTargetId(null)} isDark={isDark} />}
       {showExportImport && <ExportImportModal pins={pins} onImport={handleImport} onClose={() => setShowExportImport(false)} onExported={handleExported} isDark={isDark} lastBackupAt={lastBackupAt} />}
       {showTipJar && <TipJarModal onClose={() => setShowTipJar(false)} isDark={isDark} />}
-      {showLocationModal && (
-        <Modal
-          onClose={() => setShowLocationModal(false)}
-          isDark={isDark}
-          accentColor={isDark ? "#22d3ee" : "#0e7490"}
-          zIndex={400}
-          width={400}
-        >
-          <ModalLabel isDark={isDark}>location needed</ModalLabel>
-          <ModalTitle isDark={isDark}>find where you are</ModalTitle>
-          <div style={{
-            fontFamily: "'Lora',serif",
-            fontSize: 14,
-            color: T.textSec,
-            lineHeight: 1.85,
-            fontStyle: "italic",
-            marginBottom: 22,
-          }}>
-            Turn on location access in your settings to plant memories at your current spot.
-          </div>
-          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button
-              onClick={() => { haptic("light"); setShowLocationModal(false); }}
-              style={{
-                background: "transparent",
-                border: `1px solid ${T.panelBorder}`,
-                color: T.textSec,
-                padding: "10px 20px",
-                borderRadius: 6,
-                cursor: "pointer",
-                fontFamily: "'Lora',serif",
-                fontSize: 13,
-                letterSpacing: "0.1em",
-                minHeight: 52,
-                fontWeight: 500,
-              }}
-            >
-              cancel
-            </button>
-            <button
-              onClick={handleModalConfirm}
-              style={{
-                background: isDark ? "rgba(34,211,238,0.18)" : "rgba(14,116,144,0.12)",
-                border: `1px solid ${isDark ? "#22d3ee" : "#0e7490"}`,
-                color: isDark ? "#22d3ee" : "#0e7490",
-                padding: "10px 24px",
-                borderRadius: 6,
-                cursor: "pointer",
-                fontFamily: "'Lora',serif",
-                fontSize: 13,
-                letterSpacing: "0.12em",
-                minHeight: 52,
-                fontWeight: 700,
-              }}
-            >
-              ok ✦
-            </button>
-          </div>
-        </Modal>
-      )}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} isDark={isDark} onEnableNotifications={enableNotifications} notifPermission={notifPermission} onShowChangelog={() => { setShowHelp(false); setShowWhatsNew(true); setWhatsNewIsFirstAck(false); }} pinCount={pins.length} listeningDays={listeningDays} />}
       {showWhatsNew && <WhatsNewModal entries={CHANGELOG} isFirstAcknowledgement={whatsNewIsFirstAck} onClose={dismissWhatsNew} isDark={isDark} pinCount={pins.length} />}
 
